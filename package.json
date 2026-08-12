@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "verify:parser": "tsx scripts/verify.mts"
+    "verify:parser": "tsx scripts/verify.mts",
+    "verify:classify": "tsx scripts/verify-classify.mts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

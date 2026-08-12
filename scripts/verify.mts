@@ -1,7 +1,44 @@
-import { readFileSync } from "fs";
+import { existsSync, readFileSync, readdirSync } from "fs";
+import { dirname, join, resolve } from "path";
+import { fileURLToPath } from "url";
 import { ingestCsv } from "../lib/parse.ts";
 
-const path = "/mnt/user-data/uploads/accounting/Consolidated View_Consolidated transaction detail backfill.csv";
+// The source export is a financial extract and is gitignored (*.csv), so its
+// location is not fixed. Resolve it from (in order): argv, $EXPENSE_CSV, then
+// the first "Consolidated transaction detail" CSV in the repo or its parent.
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+function findCsv(): string {
+  const explicit = process.argv[2] || process.env.EXPENSE_CSV;
+  if (explicit) {
+    if (!existsSync(explicit)) {
+      console.error(`CSV not found at: ${explicit}`);
+      process.exit(2);
+    }
+    return explicit;
+  }
+  for (const dir of [REPO, resolve(REPO, "..")]) {
+    let names: string[] = [];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    const hit = names
+      .filter((f) => f.toLowerCase().endsWith(".csv") && /consolidated transaction detail/i.test(f))
+      .sort();
+    if (hit.length) return join(dir, hit[0]);
+  }
+  console.error(
+    'Could not find a "Consolidated transaction detail" CSV.\n' +
+      "Pass one explicitly:  npm run verify:parser -- /path/to/export.csv\n" +
+      "or set EXPENSE_CSV=/path/to/export.csv",
+  );
+  process.exit(2);
+}
+
+const path = findCsv();
+console.log("source           :", path);
 const r = ingestCsv(readFileSync(path, "utf8"));
 
 const sum = (a: number[]) => a.reduce((s, x) => s + x, 0);
