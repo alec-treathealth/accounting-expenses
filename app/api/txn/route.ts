@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseServer";
 import { authorizeTxnRequest } from "@/lib/txnAuth";
+import { getSessionUser } from "@/lib/supabaseServerAuth";
 import {
   DEFAULT_LIMIT,
   MAX_LIMIT,
@@ -30,7 +31,7 @@ function fail(status: number, code: string, message: string) {
 }
 
 export async function GET(req: NextRequest) {
-  const auth = authorizeTxnRequest(req);
+  const auth = await authorizeTxnRequest(req, async () => (await getSessionUser()) !== null);
   if (!auth.ok) return fail(auth.status, auth.code, auth.message);
 
   let db: TxnDb;

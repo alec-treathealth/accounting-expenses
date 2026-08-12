@@ -58,7 +58,10 @@ const csvPath = findCsv();
 const ing = ingestCsv(readFileSync(csvPath, "utf8"));
 console.log("source            :", csvPath);
 console.log("fixture fact rows :", ing.factRows.length, "totalling $" + ing.total.toFixed(2));
-ok(ing.total.toFixed(2) === "19709887.26", "fixture ties out to the grand total", "$" + ing.total.toFixed(2));
+/* Grand total for the Apr 1 – Aug 11 2026 export. Rose from 19,709,887.26 when
+   California Treatment Collective and Dallas Mental Health were brought into
+   the FACILITY map — 3,170 further rows that had been parsed and dropped. */
+ok(ing.total.toFixed(2) === "22851611.16", "fixture ties out to the grand total", "$" + ing.total.toFixed(2));
 
 // --- 2. in-memory PostgREST stand-in ---------------------------------------
 // Implements only what lib/txnQuery.ts uses: select(count/head), eq, or, order,
@@ -162,30 +165,64 @@ ok(code("posted_period=2026-07-01") === "ok", "posted_period form accepted");
 
 console.log("\n== auth gate (lib/txnAuth) ==");
 const hdrs = (h: Record<string, string>) => ({ headers: { get: (k: string) => h[k.toLowerCase()] ?? null } });
-const decide = (env: Record<string, string | undefined>, h: Record<string, string>) => {
+/* The session probe is injected, so the whole gate stays testable offline: no
+   Supabase round-trip, no cookie fixtures. `session` is what getSessionUser()
+   would have resolved to for this request. */
+const decide = async (env: Record<string, string | undefined>, h: Record<string, string>, session = false) => {
   const saved: Record<string, string | undefined> = {};
   for (const k of Object.keys(env)) { saved[k] = process.env[k]; if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; }
-  const d = authorizeTxnRequest(hdrs(h));
+  const d = await authorizeTxnRequest(hdrs(h), async () => session);
   for (const k of Object.keys(saved)) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
   return d;
 };
-const ON = { SUPABASE_SERVICE_ROLE_KEY: "test-key", TXN_DRILLDOWN_ENABLED: "true", TXN_DRILLDOWN_TOKEN: "test-token-not-a-real-secret", VERCEL: undefined, TXN_ALLOW_UNPROTECTED: undefined };
-const st = (d: ReturnType<typeof authorizeTxnRequest>) => (d.ok ? 200 : d.status);
-const cd = (d: ReturnType<typeof authorizeTxnRequest>) => (d.ok ? "ok:" + d.via : d.code);
+const ON = { SUPABASE_SERVICE_ROLE_KEY: "test-key", TXN_DRILLDOWN_ENABLED: "true", TXN_DRILLDOWN_TOKEN: "test-token-not-a-real-secret" };
+type Decision = Awaited<ReturnType<typeof authorizeTxnRequest>>;
+const st = (d: Decision) => (d.ok ? 200 : d.status);
+const cd = (d: Decision) => (d.ok ? "ok:" + d.via : d.code);
+const SAME_ORIGIN = { "sec-fetch-site": "same-origin", host: "app.example", origin: "https://app.example" };
 
-ok(st(decide({ ...ON, SUPABASE_SERVICE_ROLE_KEY: undefined }, {})) === 503, "no service_role key -> 503", cd(decide({ ...ON, SUPABASE_SERVICE_ROLE_KEY: undefined }, {})));
-ok(st(decide({ ...ON, TXN_DRILLDOWN_ENABLED: undefined }, { "sec-fetch-site": "same-origin" })) === 403, "drill-down off by default -> 403", cd(decide({ ...ON, TXN_DRILLDOWN_ENABLED: undefined }, { "sec-fetch-site": "same-origin" })));
-ok(st(decide(ON, {})) === 401, "bare request, no headers -> 401", cd(decide(ON, {})));
-ok(st(decide(ON, { "sec-fetch-site": "cross-site", origin: "https://evil.example" })) === 403, "cross-site fetch -> 403", cd(decide(ON, { "sec-fetch-site": "cross-site", origin: "https://evil.example" })));
-ok(st(decide(ON, { "sec-fetch-site": "same-origin", host: "app.example", origin: "https://evil.example" })) === 403, "same-origin claim with foreign Origin -> 403", cd(decide(ON, { "sec-fetch-site": "same-origin", host: "app.example", origin: "https://evil.example" })));
-ok(st(decide(ON, { authorization: "Bearer wrong" })) === 401, "wrong bearer token -> 401", cd(decide(ON, { authorization: "Bearer wrong" })));
-ok(st(decide({ ...ON, TXN_DRILLDOWN_TOKEN: undefined }, { "x-drilldown-token": "anything" })) === 401, "token presented but none configured -> 401", cd(decide({ ...ON, TXN_DRILLDOWN_TOKEN: undefined }, { "x-drilldown-token": "anything" })));
-ok(st(decide({ ...ON, VERCEL: "1" }, { "sec-fetch-site": "same-origin" })) === 401, "on Vercel without a Deployment-Protection cookie -> 401", cd(decide({ ...ON, VERCEL: "1" }, { "sec-fetch-site": "same-origin" })));
-ok(st(decide({ ...ON, VERCEL: "1" }, { "sec-fetch-site": "same-origin", cookie: "_vercel_jwt=abc" })) === 200, "on Vercel with a Deployment-Protection cookie -> allowed", cd(decide({ ...ON, VERCEL: "1" }, { "sec-fetch-site": "same-origin", cookie: "_vercel_jwt=abc" })));
-ok(st(decide(ON, { "x-drilldown-token": "test-token-not-a-real-secret" })) === 200, "correct token -> allowed", cd(decide(ON, { "x-drilldown-token": "test-token-not-a-real-secret" })));
-ok(st(decide(ON, { "sec-fetch-site": "same-origin", host: "app.example", origin: "https://app.example" })) === 200, "first-party same-origin fetch -> allowed", cd(decide(ON, { "sec-fetch-site": "same-origin", host: "app.example", origin: "https://app.example" })));
+{
+  let d = await decide({ ...ON, SUPABASE_SERVICE_ROLE_KEY: undefined }, {});
+  ok(st(d) === 503, "no service_role key -> 503", cd(d));
 
-// --- 5. live aggregates (read-only, publishable key) ------------------------
+  d = await decide({ ...ON, TXN_DRILLDOWN_ENABLED: undefined }, { "sec-fetch-site": "same-origin" });
+  ok(st(d) === 403, "drill-down off by default -> 403", cd(d));
+
+  d = await decide(ON, {});
+  ok(st(d) === 401, "bare request, no headers -> 401", cd(d));
+
+  d = await decide(ON, { "sec-fetch-site": "cross-site", origin: "https://evil.example" });
+  ok(st(d) === 403, "cross-site fetch -> 403", cd(d));
+
+  d = await decide(ON, { "sec-fetch-site": "same-origin", host: "app.example", origin: "https://evil.example" });
+  ok(st(d) === 403, "same-origin claim with foreign Origin -> 403", cd(d));
+
+  d = await decide(ON, { authorization: "Bearer wrong" });
+  ok(st(d) === 401, "wrong bearer token -> 401", cd(d));
+
+  d = await decide({ ...ON, TXN_DRILLDOWN_TOKEN: undefined }, { "x-drilldown-token": "anything" });
+  ok(st(d) === 401, "token presented but none configured -> 401", cd(d));
+
+  d = await decide(ON, { "x-drilldown-token": "test-token-not-a-real-secret" });
+  ok(st(d) === 200, "correct token -> allowed (no session needed)", cd(d));
+
+  /* The Supabase session replaces the old Vercel Deployment Protection cookie.
+     That gate keyed on Vercel team membership, and was never satisfied on the
+     production alias, so it failed closed for every real user. */
+  d = await decide(ON, SAME_ORIGIN, false);
+  ok(st(d) === 401 && cd(d) === "no_session", "first-party fetch with no session -> 401", cd(d));
+
+  d = await decide(ON, SAME_ORIGIN, true);
+  ok(st(d) === 200, "first-party fetch with a session -> allowed", cd(d));
+}
+
+// --- 5. live aggregates (read-only) -----------------------------------------
+//
+// Reads with the service_role key, falling back to the publishable key. The
+// publishable key alone stopped working here once 0005_auth_rls.sql moved these
+// tables from anon to authenticated — which is the whole point of that
+// migration, and is asserted directly by verify/anon-lockout.mts. This script
+// is operator-run against .env.local, so service_role is the right key for it.
 
 function envFromFile(): Record<string, string> {
   const out: Record<string, string> = {};
@@ -201,7 +238,11 @@ function envFromFile(): Record<string, string> {
 }
 const fileEnv = envFromFile();
 const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || fileEnv.NEXT_PUBLIC_SUPABASE_URL;
-const SB_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || fileEnv.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+const SB_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  fileEnv.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+  fileEnv.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
 type Agg = { facility: string; posted_period: string; kpi_group: string; amount: string; n: number };
 let live: Agg[] = [];
