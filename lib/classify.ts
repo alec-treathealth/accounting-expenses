@@ -6,6 +6,8 @@
 
 export const FACILITY: Record<string, string> = {
   "California Mental Health LLC": "California MH",
+  "California Treatment Collective, LLC.": "California Treatment Collective",
+  "Dallas Mental Health LLC": "Dallas Mental Health",
   "Hillside Horizon for Teens": "Hillside",
   "Houston Mental Health LLC": "Houston Mental Health",
   "Kentucky Wellness Center": "Kentucky Mental Health",

@@ -11,7 +11,8 @@
     "verify:parser": "tsx scripts/verify.mts",
     "verify:classify": "tsx scripts/verify-classify.mts",
     "verify:search": "tsx verify/txn-search.mts",
-    "verify:drilldown": "tsx verify/txn-drilldown.mts"
+    "verify:drilldown": "tsx verify/txn-drilldown.mts",
+    "verify:lockout": "tsx verify/anon-lockout.mts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",

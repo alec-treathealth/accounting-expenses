@@ -34,8 +34,18 @@ export default function LoginForm() {
     router.refresh();
   }
 
+  /* Set by middleware when a valid account is not on the invite list. Without
+     this the redirect looks like the password failed, and the person retypes a
+     correct password forever. */
+  const denied = params.get("denied") === "1";
+
   return (
     <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
+      {denied && !error && (
+        <p role="alert" style={{ color: "var(--color-danger)", margin: 0, fontSize: "var(--size-ui-sm)" }}>
+          That account does not have access to this dashboard. Ask an administrator to add you.
+        </p>
+      )}
       <label className="field">
         <span>Email</span>
         <input

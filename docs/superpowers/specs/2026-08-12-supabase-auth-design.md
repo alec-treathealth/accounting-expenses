@@ -26,6 +26,24 @@ Gating on Vercel Deployment Protection also ties access to Vercel team membershi
 
 Rejected: magic links (email delivery becomes a single point of failure), a single shared password (no per-person revocation or attribution, and forces every read server-side), and a full server-side proxy (rewrites every dashboard query for marginal gain once `anon` is revoked).
 
+## Amendment (2026-08-12, during implementation)
+
+The design below assumed public signup would be disabled, making "authenticated"
+a safe proxy for "invited". That assumption proved false and unfixable from here:
+
+- Public signup is **enabled** on this project. Verified by POSTing to
+  `/auth/v1/signup` with the publishable key — it returned 200 and created a
+  user. Disabling it requires the Supabase dashboard or Management API.
+- `/api/txn` reads `fact_txn` with the **service_role** key, which bypasses RLS
+  entirely. No policy can protect that route; only application code can.
+
+So access is granted by membership of a `public.app_access` invite list, not by
+merely holding a session. `has_dashboard_access()` (SECURITY DEFINER) backs both
+the RLS policies and the server-side check in `getAuthorizedUser()`. This is what
+"invite-only" — the choice actually made — requires, and it holds even if someone
+re-enables signup later. Disabling public signup remains recommended, but is now
+defence in depth rather than the security boundary.
+
 ## Architecture
 
 Supabase Auth with the email+password provider. Sessions live in cookies rather than localStorage so that both the browser and Next.js route handlers can read them. Middleware refreshes the session on each request and redirects unauthenticated page requests to `/login`.

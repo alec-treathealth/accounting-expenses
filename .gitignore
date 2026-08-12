@@ -33,3 +33,4 @@ yarn-error.log*
 
 # local data samples (do not commit financial exports)
 *.csv
+.env*

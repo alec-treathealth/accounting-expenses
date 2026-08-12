@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabaseServer";
-import { getSessionUser } from "@/lib/supabaseServerAuth";
+import { getAuthorizedUser } from "@/lib/supabaseServerAuth";
 import { GROUP_ORDER } from "@/lib/format";
 
 // Node runtime (not edge): this route uses the service_role key and node:crypto.
@@ -122,7 +122,7 @@ function admin() {
 // read for itself -- fact_txn is private (RLS on, no anon policy), and its row
 // count is what decides whether a rebuild would do anything at all.
 export async function GET(req: NextRequest) {
-  if (!(await getSessionUser())) return needsSession();
+  if (!(await getAuthorizedUser())) return needsSession();
 
   const gate = checkAuth(req);
   if (!gate.ok) return fail(gate);
@@ -147,7 +147,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!(await getSessionUser())) return needsSession();
+  if (!(await getAuthorizedUser())) return needsSession();
 
   const gate = checkAuth(req);
   if (!gate.ok) return fail(gate);

@@ -37,12 +37,23 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     data: { user },
   } = await supabase.auth.getUser();
 
+  // A session is not access. Public signup is open on this project, so anyone
+  // can obtain a valid session; public.app_access is the actual invite list.
+  // Checking it here means an uninvited account is bounced to /login rather
+  // than landing on a dashboard that RLS has silently emptied.
+  let invited = false;
+  if (user) {
+    const { data, error } = await supabase.rpc("has_dashboard_access");
+    invited = !error && data === true;
+  }
+
   const { pathname } = request.nextUrl;
-  if (!user && !isPublic(pathname) && !pathname.startsWith("/api/")) {
+  if (!invited && !isPublic(pathname) && !pathname.startsWith("/api/")) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     // Preserve where they were headed so login can send them back.
     url.searchParams.set("next", pathname);
+    if (user) url.searchParams.set("denied", "1");
     return NextResponse.redirect(url);
   }
 

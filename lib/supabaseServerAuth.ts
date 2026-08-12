@@ -35,14 +35,30 @@ export function createServerAuthClient(): SupabaseClient {
   );
 }
 
-/** The signed-in user for this request, or null. Never throws. */
-export async function getSessionUser(): Promise<{ id: string; email: string | null } | null> {
+/**
+ * The signed-in AND invited user for this request, or null. Never throws.
+ *
+ * Both halves are load-bearing. Public signup is open on this project, so a
+ * valid session proves only that someone registered an email address — it says
+ * nothing about whether they are allowed to see company financials. Membership
+ * of public.app_access is the actual grant.
+ *
+ * This matters most for /api/txn, which reads fact_txn with the service_role
+ * key. service_role BYPASSES RLS, so the database policies cannot protect that
+ * route; this check is the only thing standing in front of transaction detail.
+ */
+export async function getAuthorizedUser(): Promise<{ id: string; email: string | null } | null> {
   try {
     const sb = createServerAuthClient();
     // getUser() revalidates the JWT against Supabase — do not use getSession()
     // here, which trusts whatever is in the cookie.
     const { data, error } = await sb.auth.getUser();
     if (error || !data.user) return null;
+
+    // SECURITY DEFINER function, so app_access itself stays unreadable.
+    const { data: allowed, error: rpcErr } = await sb.rpc("has_dashboard_access");
+    if (rpcErr || allowed !== true) return null;
+
     return { id: data.user.id, email: data.user.email ?? null };
   } catch {
     return null;
