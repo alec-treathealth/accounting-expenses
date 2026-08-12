@@ -61,7 +61,10 @@ export function classify(label: string): { kind: Kind | null; group: string | nu
       return { kind: "EXP", group: "Advertising & Marketing" };
     if (n.includes("contract labor") || n.includes("casual labor"))
       return { kind: "EXP", group: "Contract Labor" };
-    if (n === "it" || n === "it expense" || n.includes("it expense") || n.includes("software"))
+    // "it expense" must match on WORD boundaries. A plain substring test also
+    // matches "...Medical VisIT EXPENSE", which put 6165 Employee Laboratory or
+    // Medical Visit Expense in IT Expense.
+    if (n === "it" || /\bit\s+expenses?\b/.test(n) || n.includes("software"))
       return { kind: "EXP", group: "IT Expense" };
     if (has("payroll", "salaries", "wages", "401k", "health insurance", "employee health", "benefit"))
       return { kind: "EXP", group: "Payroll Expenses" };
@@ -70,6 +73,10 @@ export function classify(label: string): { kind: Kind | null; group: string | nu
     if (
       has(
         "license", "consulting", "education", "training", "reimbursement", "hiring", "recruit",
+        // employee lab work / medical visits (pre-hire screens, licensing checks):
+        // an employee-related operating cost, grouped with hiring & training. The
+        // "supplies" test above still claims e.g. "medical supplies" first.
+        "laboratory", "medical",
         "utilit", "gas and electric", "electric", "water", "cable", "internet", "rent", "insurance",
         "interest", "legal", "accounting", "vehicle", "honda", "lease", "auto", "ftb", "tax",
         "bank fee", "service charge", "dues", "subscription", "phone", "telephone", "postage",
