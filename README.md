@@ -12,6 +12,36 @@ Vercel + Supabase. Drag-and-drop a new export to update the data.
 - **Drag-and-drop ingest**: drop the QuickBooks CSV → it's parsed, classified and
   aggregated *in your browser* → the transaction rows are POSTed to `/api/ingest`
   → the server appends **only new** rows and rebuilds the aggregates.
+- **Live-editable taxonomy** at `/admin`: change an account's KPI group and
+  rebuild, without re-uploading a CSV. See below.
+
+## Editing the account → KPI group mapping (`/admin`)
+
+`map_account_group` is the authoritative taxonomy: `rebuild_aggregates()` derives
+each transaction's KPI group by joining `fact_txn.account_label` to
+`map_account_group.account_label` (see
+`supabase/migrations/0003_rebuild_from_map.sql`). Correcting a mapping is
+therefore a two-step operation with no CSV involved:
+
+1. `/admin` → pick the right group for an account (sorted by materiality, with a
+   filter for `Unclassified expense` / not-yet-reviewed). Setting a group marks
+   the account `reviewed = true`.
+2. **Rebuild aggregates** → re-derives `agg_group_month`, `agg_account` and
+   `agg_vendor` from `fact_txn` + the taxonomy.
+
+A rebuild only ever reallocates spend *between* groups. It cannot change an
+amount, a transaction count, or `kind` — the function asserts that all three
+aggregates still tie back to `fact_txn` exactly and aborts the whole rebuild if
+they do not. Accounts are keyed by **name**, never by number.
+
+`rebuild_aggregates()` no-ops on an empty `fact_txn` (a deliberate guard, so a
+failed upload can never wipe live aggregates). While `fact_txn` is empty, mapping
+edits are saved but move no dashboard number until a CSV has been ingested —
+`/admin` says so explicitly rather than appearing to work.
+
+Writes are gated by a shared secret in `ADMIN_API_TOKEN` and go only through
+`/api/mapping` (server-side, service_role). Read the auth trade-offs in the header
+comment of `app/api/mapping/route.ts` before relying on it.
 
 ## Scope & method (important)
 
@@ -61,14 +91,20 @@ must be present before the build.
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | public | dashboard reads |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | public | dashboard reads |
-| `SUPABASE_URL` | server | ingest writes |
-| `SUPABASE_SERVICE_ROLE_KEY` | **server, secret** | ingest writes (never commit / never expose) |
+| `SUPABASE_URL` | server | ingest + mapping writes |
+| `SUPABASE_SERVICE_ROLE_KEY` | **server, secret** | ingest + mapping writes (never commit / never expose) |
+| `ADMIN_API_TOKEN` | **server, secret** | gates the `/api/mapping` write path; unset ⇒ `/admin` is read-only |
 
 ## Database
 
-Apply `supabase/migrations/0001_fact_txn.sql` (creates the private `fact_txn`
-detail table + the guarded `rebuild_aggregates()` function). The `agg_*` and
-`dim_facility` tables already exist in the project.
+Apply the migrations in `supabase/migrations/` in order:
+
+- `0001_fact_txn.sql` — the private `fact_txn` detail table + the guarded
+  `rebuild_aggregates()` function. The `agg_*` and `dim_facility` tables already
+  exist in the project.
+- `0003_rebuild_from_map.sql` — makes `map_account_group` authoritative for
+  `kpi_group` (previously the rebuild read the group off the fact row, so editing
+  the taxonomy did nothing).
 
 ## Security notes
 
