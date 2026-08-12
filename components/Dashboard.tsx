@@ -17,7 +17,7 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
   const [gm, setGm] = useState<GM[]>([]);
   const [aa, setAa] = useState<AA[]>([]);
   const [av, setAv] = useState<AV[]>([]);
-  const [notes, setNotes] = useState<FAC[]>([]);
+  const [dim, setDim] = useState<FAC[]>([]);
   const [live, setLive] = useState(false);
   const [fac, setFac] = useState("All");
   const [mon, setMon] = useState("All");
@@ -40,16 +40,28 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
       }
       if (a.data) setAa(a.data.map((r: any) => ({ ...r, amount: +r.amount })));
       if (v.data) setAv(v.data.map((r: any) => ({ ...r, amount: +r.amount })));
-      if (f.data) setNotes(f.data.filter((r: any) => r.note));
+      if (f.data) setDim(f.data as FAC[]);
     })();
     return () => { ok = false; };
   }, [reloadKey]);
 
+  // dim_facility is the roster; agg_group_month only has facilities that spent
+  // something. A facility with no expense accounts in the export must still be
+  // listed, so the count can't come from the aggregates alone.
+  const inScope = useMemo(() => dim.filter((d) => d.in_scope), [dim]);
+  const notes = useMemo(() => dim.filter((d) => d.note), [dim]);
+
   const facilities = useMemo(() => {
     const s = new Set(gm.map((r) => r.facility));
-    notes.forEach((n) => s.add(n.facility));
+    inScope.forEach((d) => s.add(d.facility));
     return [...s].sort();
-  }, [gm, notes]);
+  }, [gm, inScope]);
+
+  // in-scope facilities carrying no spend at all — named rather than assumed
+  const silent = useMemo(() => {
+    const spending = new Set(gm.map((r) => r.facility));
+    return inScope.filter((d) => !spending.has(d.facility)).map((d) => d.facility);
+  }, [inScope, gm]);
 
   const rows = useMemo(
     () => gm.filter((r) => (fac === "All" || r.facility === fac) && (mon === "All" || r.posted_period === mon)),
@@ -107,6 +119,10 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
     return { m, totals, max: Math.max(...totals, 1) };
   }, [gm, fac]);
 
+  // fall back to whatever the aggregates show until dim_facility has loaded, so
+  // the header never flashes "0 residential facilities"
+  const rosterCount = inScope.length || facilities.length;
+
   const gmax = Math.max(...byGroup.map((g) => Math.abs(g[1])), 1);
   const fmax = Math.max(...byFac.map((f) => Math.abs(f[1])), 1);
 
@@ -118,7 +134,7 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
         <div>
           <h1>Treat Health — Expense Dashboard</h1>
           <div className="sub">
-            14 residential facilities · Apr 1 – Aug 11 2026 (August partial) ·{" "}
+            {rosterCount} residential facilities · Apr 1 – Aug 11 2026 (August partial) ·{" "}
             <span className="status"><span className={"dot" + (live ? " live" : "")} />{live ? "live" : "connecting…"}</span>
           </div>
         </div>
@@ -144,7 +160,7 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
       <div className="grid kpis">
         <div className="card kpi"><div className="lab">Total spend</div><div className="val">{usd(total)}</div><div className="foot">{mon === "All" ? "Apr–Aug 2026 (Aug partial)" : MONTH_LABEL[mon] + " 2026"}</div></div>
         <div className="card kpi"><div className="lab">Largest group</div><div className="val">{usd(big[1] as number)}</div><div className="foot">{big[0]} · {pct((big[1] as number) / (total || 1))}</div></div>
-        <div className="card kpi"><div className="lab">Facilities reporting</div><div className="val">{reporting}{fac === "All" ? " of 14" : ""}</div><div className="foot">{fac === "All" ? "Nashville has no expense accounts" : fac}</div></div>
+        <div className="card kpi"><div className="lab">Facilities reporting</div><div className="val">{reporting}{fac === "All" ? ` of ${rosterCount}` : ""}</div><div className="foot">{fac !== "All" ? fac : silent.length ? `${silent.join(", ")} ${silent.length === 1 ? "has" : "have"} no expense accounts` : "all facilities reporting"}</div></div>
         <div className="card kpi"><div className="lab">Avg / full month</div><div className="val">{usd(avgFull)}</div><div className="foot">Apr–Jul, excludes partial Aug</div></div>
       </div>
 
