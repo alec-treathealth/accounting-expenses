@@ -1,0 +1,348 @@
+/* ============================================================================
+   TREAT DESIGN SYSTEM — TOKENS
+   v2.1 · "Bright Teal"
+
+   The single source of truth for color, space, radius, elevation and motion.
+   Nothing else in the app may hard-code a hex. This must hold:
+
+       grep -rE "#[0-9a-fA-F]{6}" app/ components/ lib/ --include=*.tsx --include=*.ts
+
+   ...returns nothing.
+
+   Ramps sit on one shared OKLCH lightness scale, so step N of any role has the
+   same visual weight as step N of every other role:
+       100 L.975  200 L.935  300 L.880  400 L.820  500 L.720
+       600 L.576  700 L.438  800 L.319  900 L.247
+
+   HOW TO PICK A STEP — dark ground (default):
+       100–200   near-white washes. Rare. Text on a filled accent chip.
+       300       accent-colored PARAGRAPH text. 12.5:1.
+       400       THE accent. Chrome, icons, links, focus rings, large numbers.
+       500       hover/active states, filled bars, chart series.
+       600       borders and dividers that should read accent, not neutral.
+       700–900   accent-tinted BACKGROUNDS. Never text.
+   On the LIGHT ground ([data-ground="light"]) the scale inverts: 700 is your
+   text step, 300–400 are your background steps.
+
+   Never write a raw hex in a component. Never use --color-danger for emphasis.
+   Never use --color-accent-2 to mean "bad".
+
+   NOTE ON THE TAILWIND BRIDGE: this project does not use Tailwind, so the
+   @theme block from the design-system source is intentionally omitted. The
+   :root block below is framework-agnostic and is what the app actually reads.
+   If Tailwind v4 is ever added, re-add @theme with --text-size-* / --color-body
+   names — NOT --text-*, which collides with the semantic text color roles.
+   ========================================================================== */
+
+:root {
+  /* ---- Ground ---------------------------------------------------------- */
+  --color-bg: #131C1D;              /* page                                 */
+  --color-surface: #1B2728;         /* cards, drawers, inputs               */
+  --color-surface-raised: #22302F;  /* menus, popovers, sticky headers      */
+  --color-text: #E7EDEC;            /* 14.6:1 on bg                         */
+
+  /* ---- Primary accent — bright teal ------------------------------------ */
+  --color-accent: #41E0C6;          /* 10.5:1 on bg — legal for body text   */
+  --color-accent-100: #E8FCF7;
+  --color-accent-200: #C2F6EB;
+  --color-accent-300: #8CECDB;      /* accent paragraph text · 12.5:1       */
+  --color-accent-400: #41E0C6;      /* == --color-accent                    */
+  --color-accent-500: #2DBDA9;      /* hover / active / filled bars         */
+  --color-accent-600: #1C8B82;      /* legacy brand teal — unchanged        */
+  --color-accent-700: #135E5A;      /* legacy brand deep — unchanged        */
+  --color-accent-800: #0E3A3A;      /* legacy brand section — unchanged     */
+  --color-accent-900: #0A2625;
+
+  /* ---- Secondary accent — coral. NOT a severity color. ------------------ */
+  --color-accent-2: #FEAC98;        /* 9.6:1 on bg                          */
+  --color-accent-2-100: #FFF4F1;
+  --color-accent-2-200: #FFE2DB;
+  --color-accent-2-300: #FEC9BC;
+  --color-accent-2-400: #FEAC98;    /* == --color-accent-2                  */
+  --color-accent-2-500: #F18065;
+  --color-accent-2-600: #BF533A;
+  --color-accent-2-700: #873421;
+  --color-accent-2-800: #571E10;
+  --color-accent-2-900: #3B1208;
+
+  /* ---- Danger — errors and destructive actions ONLY -------------------- */
+  --color-danger: #FF6B5E;          /* 6.2:1 on bg                          */
+  --color-danger-100: #FFF4F2;
+  --color-danger-200: #FFE2DE;
+  --color-danger-300: #FEC9C1;      /* danger paragraph text · 11.8:1       */
+  --color-danger-400: #FEABA1;
+  --color-danger-500: #FF6B5E;      /* == --color-danger                    */
+  --color-danger-600: #D23A33;
+  --color-danger-700: #971A18;
+  --color-danger-800: #620A0A;
+  --color-danger-900: #420606;
+
+  /* ---- Neutrals — teal-family at very low chroma, which is why the dark
+          ground reads as brand rather than blue-grey. --------------------- */
+  --color-neutral-100: #F2F8F8;
+  --color-neutral-200: #E5EBEB;
+  --color-neutral-300: #D3D9D9;     /* body copy on surface · 12.1:1        */
+  --color-neutral-400: #BEC6C6;     /* secondary copy · 10.0:1              */
+  --color-neutral-500: #9EA6A7;     /* labels, captions · 7.0:1             */
+  --color-neutral-600: #737B7B;     /* disabled text · 4.0:1                */
+  --color-neutral-700: #4D5454;     /* strong borders                       */
+  --color-neutral-800: #2D3434;     /* hairlines                            */
+  --color-neutral-900: #1C2223;     /* subtle fills just above bg           */
+
+  /* ---- Status ---------------------------------------------------------- */
+  --color-ok:   #44D49E;            /* 9.2:1 — on-brand green, not lime     */
+  --color-warn: #F3BC3D;            /* 10.0:1                               */
+  --color-info: #66C3EB;            /* 8.7:1                                */
+  --color-muted: var(--color-neutral-500);
+
+  /* ---- Structure ------------------------------------------------------- */
+  --color-divider: color-mix(in srgb, var(--color-text) 16%, transparent);
+  --color-section: #0E3A3A;
+  --color-section-glow: #135E5A;
+  --color-section-ghost: #1C8B82;
+
+  /* ---- Chart series — ordered for categorical data. First four are
+          maximally distinguishable under deuteranopia, which is why info
+          (blue) comes before warn (amber). ------------------------------- */
+  --chart-1: var(--color-accent-400);
+  --chart-2: var(--color-accent-2-400);
+  --chart-3: var(--color-info);
+  --chart-4: var(--color-warn);
+  --chart-5: var(--color-accent-600);
+  --chart-6: var(--color-accent-2-600);
+  /* 7 and 8 extend the series for this app: the expense taxonomy has EIGHT
+     KPI groups, and the shipped series stops at 6. Both are existing ramp
+     steps on the shared lightness scale, so they carry the same weight as
+     1-6 and no new hue is introduced. 7 = ok (green), 8 = danger — used
+     ONLY as the categorical slot for "Unclassified expense", which is the
+     one group that genuinely means "needs attention". */
+  --chart-7: var(--color-ok);
+  --chart-8: var(--color-danger);
+  --chart-grid: color-mix(in srgb, var(--color-text) 9%, transparent);
+  --chart-axis: var(--color-neutral-600);
+
+  /* ---- Semantic text roles --------------------------------------------- */
+  /* THE RULE: components reference these, never a numbered ramp step. The
+     numbered steps are absolute positions on the OKLCH scale and therefore
+     CANNOT invert — on the light ground #D3D9D9 is 1.35:1. These six do
+     invert, because the light block below restates them at the 700/800 end
+     of the same ramp.
+
+     If you catch yourself writing color: var(--color-neutral-300) for text,
+     you want --text-body. */
+  --text-body:      var(--color-neutral-300);  /* 12.1:1 — must be read     */
+  --text-secondary: var(--color-neutral-400);  /* 10.0:1 — table cells      */
+  --text-meta:      var(--color-neutral-500);  /*  7.0:1 — labels, units    */
+  --text-disabled:  var(--color-neutral-600);  /*  4.0:1 — DISABLED ONLY    */
+  --text-accent:    var(--color-accent-300);   /* 12.5:1 — accent paragraph */
+  --text-danger:    var(--color-danger-300);   /* 11.8:1 — danger paragraph */
+
+  /* ---- Semantic fills + hairline --------------------------------------- */
+  /* Washes behind rows, nav items and hover states. Written as color-mix so
+     they follow --color-text across grounds instead of being fixed greys. */
+  --fill-selected: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  --fill-hover:    color-mix(in srgb, var(--color-text) 6%, transparent);
+  --fill-active:   color-mix(in srgb, var(--color-text) 10%, transparent);
+  --hairline:      var(--color-neutral-800);
+
+  --fill-accent-hover:  color-mix(in srgb, var(--color-accent) 10%, transparent);
+  --fill-accent-active: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  --fill-danger-hover:  color-mix(in srgb, var(--color-danger) 10%, transparent);
+  --fill-danger-active: color-mix(in srgb, var(--color-danger) 16%, transparent);
+  --fill-seg-track:     color-mix(in srgb, var(--color-text) 4%, transparent);
+
+  /* ---- Type ------------------------------------------------------------ */
+  --font-heading: "Inter", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "IBM Plex Mono", monospace;
+  --font-heading-weight: 500;
+
+  /* Weights — only three. A fourth needs a reason. */
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  /* Size scale. Non-modular on purpose: these are the sizes the product
+     actually uses, measured off the shipping screens. */
+  --size-display: 42px;
+  --size-h2: 32px;
+  --size-h3: 25px;
+  --size-h4: 20px;
+  --size-h5: 16px;
+  --size-h6: 13px;        /* uppercase eyebrow                             */
+  --size-kpi: 28px;       /* the dense stat block                          */
+  --size-body: 15px;
+  --size-body-sm: 13px;
+  --size-ui: 12.5px;      /* buttons, inputs, table cells — the workhorse  */
+  --size-ui-sm: 11.5px;
+  --size-meta: 11px;
+  --size-card-body: 12px;
+  --size-label: 10.5px;
+  --size-tag: 10px;
+
+  /* Leading — UNITLESS ratios, so one value is correct at every size. */
+  --leading-display: 1.05;
+  --leading-heading: 1.12;
+  --leading-snug: 1.5;
+  --leading-body: 1.55;
+  --leading-flat: 1;
+
+  /* Tracking — em, so it scales with size. */
+  --tracking-display: -0.02em;
+  --tracking-heading: -0.015em;
+  --tracking-body: -0.006em;
+  --tracking-flat: 0;
+  --tracking-label: .06em;
+  --tracking-eyebrow: .08em;
+  --tracking-code: .04em;
+  --tracking-code-wide: .16em;
+
+  /* ---- Space — compact by default (0.70x). ----------------------------- */
+  --space-1: 2.8px;  --space-2: 5.6px;  --space-3: 8.4px;
+  --space-4: 11.2px; --space-6: 16.8px; --space-8: 22.4px;
+
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 14px;
+
+  /* ---- Elevation — a ring, then a shadow. ------------------------------ */
+  --shadow-sm: 0 0 0 1px var(--color-neutral-800);
+  --shadow-md: 0 0 0 1px var(--color-neutral-700), 0 6px 18px rgba(0,0,0,.55);
+  --shadow-lg: 0 0 0 1px var(--color-neutral-500), 0 16px 40px rgba(0,0,0,.65);
+  --shadow-accent: 0 0 0 1px color-mix(in srgb, var(--color-accent) 45%, transparent),
+                   0 0 24px -6px color-mix(in srgb, var(--color-accent) 40%, transparent);
+
+  /* ---- Rules — freestanding rules fade to transparent 48px from each end. */
+  --rule-h: linear-gradient(to right, transparent,
+    var(--color-divider) 48px, var(--color-divider) calc(100% - 48px), transparent);
+  --rule-v: linear-gradient(to bottom, transparent,
+    var(--color-divider) 48px, var(--color-divider) calc(100% - 48px), transparent);
+
+  --table-cell-pad: 8px;
+
+  /* ---- Motion ---------------------------------------------------------- */
+  --ease: cubic-bezier(.2,.8,.2,1);
+  --dur-1: .12s; --dur-2: .22s; --dur-3: .36s;
+
+  color-scheme: dark;
+}
+
+/* ---------------------------------------------------------------------------
+   LIGHT GROUND — a preference, not a fork.
+   Every color-mix(in srgb, var(--color-text) N%, transparent) flips
+   automatically, which is why muted values must be written that way and never
+   as fixed greys. Only the values that genuinely cannot invert are restated.
+--------------------------------------------------------------------------- */
+[data-ground="light"] {
+  --color-bg: #FBF8F4;
+  --color-surface: #FFFFFF;
+  --color-surface-raised: #FFFFFF;
+  --color-text: #1B2B2A;
+
+  /* On a light ground the bright teal has 1.6:1 — invisible. Step down to the
+     700, which is the same brand hue at 7.1:1. */
+  --color-accent: #135E5A;
+  --color-accent-2: #BF533A;   /* 4.4:1 — AA for large text and UI */
+  --color-danger: #D23A33;     /* 4.5:1 — AA */
+  --color-ok:   #027C57;       /* 4.9:1 */
+  --color-warn: #9A6A00;       /* 4.5:1 */
+  --color-info: #007397;       /* 5.1:1 */
+
+  --color-divider: color-mix(in srgb, var(--color-text) 16%, transparent);
+
+  /* --color-muted is --color-neutral-500 on the dark ground, where it is
+     7.0:1. On this ground that same hex is 2.34:1 — it FAILS AA. Restate it
+     at the 700 step, which is 7.31:1 here. */
+  --color-muted: var(--color-neutral-700);
+
+  /* ---- Semantic text roles, inverted ----------------------------------- */
+  --text-body:      var(--color-neutral-800);  /* 12.00:1 — AAA            */
+  --text-secondary: var(--color-neutral-700);  /*  7.31:1 — AAA            */
+  --text-meta:      var(--color-neutral-700);  /*  7.31:1 — AAA            */
+  --text-disabled:  var(--color-neutral-600);  /*  4.09:1 — disabled only  */
+  --text-accent:    var(--color-accent-700);   /*  7.14:1 — AAA            */
+  --text-danger:    var(--color-danger-700);   /*  8.01:1 — AAA            */
+
+  --hairline: var(--color-neutral-200);
+
+  --chart-1: var(--color-accent-600);
+  --chart-2: var(--color-accent-2-600);
+  --chart-3: #007397;
+  --chart-4: #9A6A00;
+  --chart-5: var(--color-accent-700);
+  --chart-6: var(--color-accent-2-700);
+  --chart-7: #027C57;
+  --chart-8: var(--color-danger-600);
+
+  --shadow-sm: 0 0 0 1px var(--color-neutral-200);
+  --shadow-md: 0 0 0 1px var(--color-neutral-200), 0 6px 18px rgba(14,58,58,.10);
+  --shadow-lg: 0 0 0 1px var(--color-neutral-300), 0 16px 40px rgba(14,58,58,.16);
+  --shadow-accent: 0 0 0 1px color-mix(in srgb, var(--color-accent) 45%, transparent),
+                   0 8px 20px -8px color-mix(in srgb, var(--color-accent) 35%, transparent);
+
+  color-scheme: light;
+}
+
+/* ---------------------------------------------------------------------------
+   DENSITY — comfortable multiplies the compact scale by 1.45.
+--------------------------------------------------------------------------- */
+[data-density="comfortable"] {
+  --space-1: 4.06px;  --space-2: 8.12px;  --space-3: 12.18px;
+  --space-4: 16.24px; --space-6: 24.36px; --space-8: 32.48px;
+  --table-cell-pad: 11px;
+}
+
+/* ---------------------------------------------------------------------------
+   HIGH CONTRAST — opt-in, for long shifts on bad monitors.
+--------------------------------------------------------------------------- */
+[data-contrast="high"] {
+  --color-divider: color-mix(in srgb, var(--color-text) 32%, transparent);
+  --color-neutral-500: var(--color-neutral-400);
+  --color-neutral-600: var(--color-neutral-500);
+
+  --text-body:      var(--color-neutral-200);
+  --text-secondary: var(--color-neutral-300);
+  --text-meta:      var(--color-neutral-400);
+  --text-accent:    var(--color-accent-200);
+  --text-danger:    var(--color-danger-200);
+  --hairline:       var(--color-neutral-700);
+
+  /* The disabled step deliberately does NOT gain contrast — a disabled control
+     that reads as legible stops reading as disabled. Pinned to the LITERAL
+     700 hex rather than var(--color-neutral-600), because the two remaps above
+     shift 600 to the 500 value; going through the variable would LIGHTEN
+     disabled text on the dark ground and, worse, to 1.64:1 on the light
+     ground where the ramp runs the other way. */
+  --text-disabled: #737B7B;
+}
+
+/* High contrast ON the light ground — steps toward black rather than white.
+   Both selectors are needed: the attributes may sit on the same element
+   (<html data-ground="light" data-contrast="high">) or on nested ones. */
+[data-ground="light"][data-contrast="high"],
+[data-ground="light"] [data-contrast="high"] {
+  --text-body:      var(--color-neutral-900);
+  --text-secondary: var(--color-neutral-800);
+  --text-meta:      var(--color-neutral-800);
+  --text-accent:    var(--color-accent-800);
+  --text-danger:    var(--color-danger-800);
+  --hairline:       var(--color-neutral-300);
+  --text-disabled:  #737B7B;
+}
+
+/* ---------------------------------------------------------------------------
+   CONTRAST — computed against WCAG 2.1 relative luminance, not eyeballed.
+   Dark ground #131C1D · light ground #FBF8F4 · light surface #FFFFFF.
+
+     role              dark    light   floor
+     --text-body       12.13   12.00   4.5  AAA both
+     --text-secondary   9.97    7.31   4.5  AAA both
+     --text-meta        6.99    7.31   4.5  AAA both
+     --text-disabled    4.00    4.09   --   disabled only, fails AA by design
+     --text-accent     12.49    7.14   4.5  AAA both
+     --text-danger     11.84    8.01   4.5  AAA both
+     --color-text      14.63   13.93   4.5  AAA both
+     --color-muted      6.99    7.31   4.5  AAA both (was 2.34 on light)
+
+   Two invariants:
+   - Only --text-disabled is allowed below 4.5:1. Everything else is content.
+   - Never put a numbered ramp step on text. Use a --text-* role; it inverts.
+--------------------------------------------------------------------------- */

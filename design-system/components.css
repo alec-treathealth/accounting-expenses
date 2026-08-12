@@ -1,0 +1,418 @@
+/* ============================================================================
+   TREAT DESIGN SYSTEM — COMPONENTS
+   v2.1 · "Bright Teal"
+
+   Import AFTER tokens.css. Every value here resolves to a token; there are no
+   hexes in this file outside the intended print block.
+
+   ── THE ONE RULE ─────────────────────────────────────────────────────────
+   The accent is a LINE and a GLOW, never a FLOOD. A primary button is an
+   outlined button with accent text, not a solid teal slab. This is what keeps
+   a dense financial dashboard from turning into a Christmas tree once you put
+   forty KPI cards on one screen — and it is why the accent could be brightened
+   to #41E0C6 without the UI becoming unusable.
+
+   The only things allowed a solid accent fill: the active nav indicator, a
+   progress bar's filled portion, and a chart series. That is the whole list.
+   ========================================================================== */
+
+/* ============================================================================
+   BASE
+   ========================================================================== */
+html, body { height: 100%; }
+
+body {
+  font-family: var(--font-body);
+  font-size: var(--size-body);
+  line-height: var(--leading-body);
+  font-weight: var(--weight-regular);
+  letter-spacing: var(--tracking-body);
+  color: var(--color-text);
+  background: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  line-height: var(--leading-heading);
+  letter-spacing: var(--tracking-heading);
+  color: var(--color-text);
+}
+h1 { font-size: var(--size-display); }
+h2 { font-size: var(--size-h2); }
+h3 { font-size: var(--size-h3); }
+h4 { font-size: var(--size-h4); }
+h5 { font-size: var(--size-h5); }
+h6 { font-size: var(--size-h6); text-transform: uppercase; letter-spacing: var(--tracking-eyebrow); }
+
+a { color: var(--color-accent); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+/* Tabular numerals everywhere a number renders. No font-family override —
+   Inter's tnum figures are correct, so numbers align without going mono. */
+.ths-num { font-variant-numeric: tabular-nums; letter-spacing: var(--tracking-flat); }
+
+/* Monospaced only where the character grid itself is the information:
+   account numbers, claim IDs, transaction refs, codes. */
+.ths-code {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-code);
+}
+
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+/* Fields whose input suppresses its own ring hand the ring to their wrapper,
+   so focus is still visible — never suppressed without a replacement. */
+.ths-ring-host:focus-within { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+::selection { background: color-mix(in srgb, var(--color-accent) 30%, transparent); }
+:disabled { opacity: .45; cursor: not-allowed; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+
+/* ============================================================================
+   RULES
+   Freestanding rules fade 48px from each end. Box outlines, in-control
+   separators and short accent marks stay solid.
+   ========================================================================== */
+.hr { height: 1px; border: 0; margin: var(--space-4) 0; background: var(--rule-h); }
+
+.ths-vrule {
+  position: absolute; top: 0; bottom: 0; right: 0; width: 1px;
+  background: var(--rule-v); pointer-events: none;
+}
+.ths-hrule {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
+  background: var(--rule-h); pointer-events: none;
+}
+
+/* ============================================================================
+   BUTTONS
+   ========================================================================== */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  font-family: var(--font-body); font-size: var(--size-ui);
+  font-weight: var(--weight-medium); line-height: var(--leading-flat);
+  min-height: 32px; padding: var(--space-2) var(--space-4);
+  border: 1px solid transparent; border-radius: var(--radius-md);
+  background: transparent; color: var(--color-text); cursor: pointer;
+  transition: background var(--dur-1) var(--ease),
+              color var(--dur-1) var(--ease),
+              border-color var(--dur-1) var(--ease);
+  white-space: nowrap;
+}
+
+.btn-primary { border-color: var(--color-accent); color: var(--color-accent); }
+.btn-primary:hover  { background: var(--fill-accent-hover); }
+.btn-primary:active { background: var(--fill-accent-active); }
+
+/* The one filled variant. Reserve it for the single most important action on
+   a screen. If two of these are visible at once, one of them is wrong. */
+.btn-solid {
+  background: var(--color-accent); border-color: var(--color-accent);
+  color: var(--color-accent-900); font-weight: var(--weight-semibold);
+}
+.btn-solid:hover  { background: var(--color-accent-300); border-color: var(--color-accent-300); }
+.btn-solid:active { background: var(--color-accent-500); border-color: var(--color-accent-500); }
+
+.btn-secondary { border-color: var(--color-divider); color: var(--color-text); }
+.btn-secondary:hover  { background: var(--fill-hover); }
+.btn-secondary:active { background: var(--fill-active); }
+
+.btn-ghost { color: var(--text-secondary); }
+.btn-ghost:hover { background: var(--fill-hover); color: var(--text-body); }
+
+/* Destructive. Uses --color-danger, NOT --color-accent-2 — that split is the
+   whole point of v2. A coral button is a warm secondary action; a red button
+   deletes something. */
+.btn-danger { border-color: var(--color-danger); color: var(--color-danger); }
+.btn-danger:hover  { background: var(--fill-danger-hover); }
+.btn-danger:active { background: var(--fill-danger-active); }
+
+.btn-icon  { width: 32px; min-width: 32px; height: 32px; min-height: 32px; padding: 0; }
+.btn-block { width: 100%; }
+.btn-sm    { min-height: 26px; font-size: var(--size-ui-sm); padding: var(--space-1) var(--space-3); }
+
+/* ============================================================================
+   FIELDS
+   ========================================================================== */
+.field { display: flex; flex-direction: column; gap: var(--space-2); }
+.field > span {
+  font-size: var(--size-label); font-weight: var(--weight-medium);
+  text-transform: uppercase; letter-spacing: var(--tracking-label);
+  color: var(--text-meta);
+}
+
+.input {
+  font-family: var(--font-body); font-size: var(--size-ui); color: var(--color-text);
+  height: 32px; padding: 0 10px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  transition: border-color var(--dur-1) var(--ease);
+}
+.input:hover { border-color: color-mix(in srgb, var(--color-text) 26%, transparent); }
+.input:focus { border-color: var(--color-accent); outline-offset: 1px; }
+.input::placeholder { color: var(--text-meta); }
+.input[aria-invalid="true"] { border-color: var(--color-danger); }
+textarea.input { height: auto; padding: var(--space-2) 10px; }
+select.input { appearance: none; padding-right: 26px; }
+
+/* Identifier fields — account numbers, transaction refs. The character grid is
+   the information, so these go mono and letterspaced. */
+.input-code {
+  font-family: var(--font-mono); font-size: var(--size-body);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-code-wide); text-transform: uppercase;
+}
+
+.radio { display: inline-flex; align-items: center; gap: 8px; font-size: var(--size-ui); cursor: pointer; }
+.radio input { accent-color: var(--color-accent); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+
+.seg {
+  display: inline-flex; gap: 2px; padding: 2px;
+  border: 1px solid var(--color-divider); border-radius: var(--radius-md);
+  background: var(--fill-seg-track);
+}
+.seg-opt {
+  position: relative; display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 10px; border-radius: calc(var(--radius-md) - 3px);
+  font-size: var(--size-ui-sm); font-weight: var(--weight-medium);
+  line-height: var(--leading-flat); color: var(--text-meta);
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+.seg-opt input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.seg-opt:hover { color: var(--text-body); }
+.seg-opt:has(input:checked) { color: var(--color-accent); background: var(--fill-selected); }
+.seg-opt:has(input:focus-visible) { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+/* ============================================================================
+   CARDS + ELEVATION
+   Contrast comes from the tonal ramps and the ring, not from a border color.
+   ========================================================================== */
+.card {
+  position: relative;
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-6);
+}
+.card-kicker {
+  font-size: var(--size-tag); font-weight: var(--weight-semibold);
+  text-transform: uppercase; letter-spacing: var(--tracking-eyebrow);
+  color: var(--text-accent);
+}
+.card-title { font-size: var(--size-h6); font-weight: var(--weight-medium); color: var(--color-text); }
+.card-body  { font-size: var(--size-card-body); color: var(--text-body); }
+.card-meta  { font-size: var(--size-meta); color: var(--text-meta); }
+
+/* "Lit" card — the accent glow, for the one card on a screen that is the
+   answer to the question the user came to ask. */
+.card-lit { box-shadow: var(--shadow-accent); }
+
+.elev-sm { box-shadow: var(--shadow-sm); }
+.elev-md { box-shadow: var(--shadow-md); }
+.elev-lg { box-shadow: var(--shadow-lg); }
+
+/* KPI — the dense stat block that carries the dashboard. */
+.kpi { display: flex; flex-direction: column; gap: 2px; }
+.kpi-label {
+  font-size: var(--size-label); font-weight: var(--weight-medium);
+  text-transform: uppercase; letter-spacing: var(--tracking-label);
+  color: var(--text-meta);
+}
+.kpi-value {
+  font-variant-numeric: tabular-nums; letter-spacing: var(--tracking-display);
+  font-size: var(--size-kpi); font-weight: var(--weight-medium);
+  line-height: var(--leading-display); color: var(--color-text);
+}
+.kpi-sub   { font-size: var(--size-meta); color: var(--text-meta); }
+.kpi-delta {
+  font-size: var(--size-ui-sm); font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================================
+   TAGS
+   ========================================================================== */
+.tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: var(--size-tag); font-weight: var(--weight-medium);
+  line-height: var(--leading-snug);
+  padding: 2px 8px; border-radius: 99px; white-space: nowrap;
+}
+.tag-accent   { color: var(--text-accent);    background: color-mix(in srgb, var(--color-accent) 14%, transparent); }
+.tag-accent-2 { color: var(--color-accent-2); background: color-mix(in srgb, var(--color-accent-2) 14%, transparent); }
+.tag-ok       { color: var(--color-ok);       background: color-mix(in srgb, var(--color-ok) 14%, transparent); }
+.tag-warn     { color: var(--color-warn);     background: color-mix(in srgb, var(--color-warn) 14%, transparent); }
+.tag-danger   { color: var(--text-danger);    background: color-mix(in srgb, var(--color-danger) 14%, transparent); }
+.tag-info     { color: var(--color-info);     background: color-mix(in srgb, var(--color-info) 14%, transparent); }
+.tag-neutral  { color: var(--text-secondary); background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.tag-outline  { color: var(--text-secondary); background: transparent; box-shadow: inset 0 0 0 1px var(--color-divider); }
+
+/* ============================================================================
+   TABLE
+   Rows paint their rule as a row-level background strip so the fade spans the
+   row rather than each cell; the hover tint layers over it as a second
+   gradient so the rule keeps painting underneath.
+   ========================================================================== */
+.table { width: 100%; border-collapse: collapse; font-size: var(--size-ui); }
+.table caption { text-align: left; }
+
+.table thead th {
+  font-size: var(--size-label); font-weight: var(--weight-medium);
+  text-transform: uppercase; letter-spacing: var(--tracking-label);
+  color: var(--text-meta); text-align: left;
+  padding: var(--table-cell-pad) 10px;
+}
+
+.table tbody tr {
+  background-image: var(--rule-h);
+  background-repeat: no-repeat;
+  background-position: bottom;
+  background-size: 100% 1px;
+}
+.table tbody tr:hover {
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--color-text) 4%, transparent),
+                    color-mix(in srgb, var(--color-text) 4%, transparent)),
+    var(--rule-h);
+  background-repeat: no-repeat, no-repeat;
+  background-position: top, bottom;
+  background-size: 100% 100%, 100% 1px;
+}
+.table tbody td { padding: var(--table-cell-pad) 10px; color: var(--text-body); }
+
+/* Numeric columns right-align and go tabular. Financial tables are unreadable
+   otherwise — the decimal points have to form a vertical line. */
+.table .num, .table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Sticky header for long transaction lists. */
+.table-sticky thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--color-surface-raised);
+  box-shadow: inset 0 -1px 0 var(--color-divider);
+}
+
+/* Zebra preference: stripes + a leading status mark instead of fading rules. */
+[data-rows="zebra"] .table tbody tr,
+[data-rows="zebra"] .table tbody tr:hover { background-image: none; }
+[data-rows="zebra"] .table tbody tr:nth-child(even) { background-color: color-mix(in srgb, var(--color-text) 4%, transparent); }
+[data-rows="zebra"] .table tbody tr:hover           { background-color: color-mix(in srgb, var(--color-text) 7%, transparent); }
+[data-rows="zebra"] .table tbody td:first-child     { box-shadow: inset 3px 0 0 var(--row-status, transparent); }
+
+/* ============================================================================
+   PROGRESS / BARS
+   ========================================================================== */
+.bar {
+  position: relative; height: 4px; border-radius: 99px; overflow: hidden;
+  background: color-mix(in srgb, var(--color-text) 10%, transparent);
+}
+.bar > i {
+  display: block; height: 100%; border-radius: 99px;
+  background: var(--bar-color, var(--color-accent));
+  transition: width var(--dur-3) var(--ease);
+}
+
+/* ============================================================================
+   DIALOGS
+   ========================================================================== */
+.dialog-backdrop {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  backdrop-filter: blur(3px);
+  padding: var(--space-6);
+}
+.dialog {
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-6);
+  width: 100%; max-width: 560px;
+  max-height: calc(100vh - 48px); overflow-y: auto;
+}
+.dialog-title   { font-size: var(--size-h5); font-weight: var(--weight-medium); color: var(--color-text); }
+.dialog-body    { font-size: var(--size-body-sm); color: var(--text-body); margin-top: var(--space-3); }
+.dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-3); margin-top: var(--space-6); }
+
+/* ============================================================================
+   MOTION — exactly five keyframes. Adding a sixth needs a reason.
+   ========================================================================== */
+@keyframes ths-marquee  { from { transform: translate3d(0,0,0) } to { transform: translate3d(-50%,0,0) } }
+@keyframes ths-live     { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
+@keyframes ths-slide-in { from { transform: translateX(22px); opacity: 0 } to { transform: none; opacity: 1 } }
+@keyframes ths-rise     { from { transform: translateY(8px);  opacity: 0 } to { transform: none; opacity: 1 } }
+@keyframes ths-shimmer  { from { background-position: -200% 0 } to { background-position: 200% 0 } }
+
+.ths-live-dot { animation: ths-live 3.2s ease-in-out infinite; }
+.ths-slide-in { animation: ths-slide-in var(--dur-3) var(--ease) both; }
+.ths-rise     { animation: ths-rise .5s var(--ease) both; }
+
+/* Loading skeleton — for the gap between mount and the Supabase round-trip. */
+.ths-skeleton {
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--color-text) 6%, transparent) 25%,
+    color-mix(in srgb, var(--color-text) 12%, transparent) 50%,
+    color-mix(in srgb, var(--color-text) 6%, transparent) 75%);
+  background-size: 200% 100%;
+  animation: ths-shimmer 1.4s linear infinite;
+}
+
+/* Marquee tracks duplicate their content once (copy aria-hidden) and animate a
+   width:max-content flex row. Paused on hover and focus-within. */
+.ths-ticker { position: relative; overflow: hidden; }
+.ths-ticker-track { display: flex; width: max-content; animation: ths-marquee 46s linear infinite; }
+.ths-ticker:hover .ths-ticker-track,
+.ths-ticker:focus-within .ths-ticker-track { animation-play-state: paused; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+/* Motion preference "off" applies the same overrides regardless of OS setting. */
+[data-motion="off"] *, [data-motion="off"] *::before, [data-motion="off"] *::after {
+  animation-duration: .01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: .01ms !important;
+}
+
+/* ============================================================================
+   MISC
+   ========================================================================== */
+.ths-tip { position: relative; }
+.ths-tip > .ths-tip-bub { visibility: hidden; opacity: 0; transition: opacity var(--dur-1) var(--ease); }
+.ths-tip:hover > .ths-tip-bub,
+.ths-tip:focus-within > .ths-tip-bub { visibility: visible; opacity: 1; }
+
+/* Legacy row hover for non-.table flex rows. */
+.ths-row { transition: background .1s var(--ease); }
+.ths-row:hover { background: var(--fill-seg-track); }
+
+/* PHI mask — blurs identifiers until a role with permission reveals them. */
+.ths-phi-masked {
+  filter: blur(5px);
+  user-select: none;
+  pointer-events: none;
+}
+
+@media print {
+  @page { margin: .5cm; }
+  body { background: #fff; color: #000; }
+  .table thead th { color: #000; }
+  figure, table { break-inside: avoid; }
+  *, *::before, *::after {
+    print-color-adjust: exact; -webkit-print-color-adjust: exact;
+    animation: none !important; transition: none !important;
+  }
+}

@@ -60,6 +60,13 @@ export async function GET(req: NextRequest) {
           kpi_group: f.kpi_group,
           account_label: f.account_label,
           vendor: f.vendor,
+          /* Echo the SANITIZED term, not what was typed: the client shows this
+             so a user whose punctuation was stripped can see what actually ran.
+             `searched` tells the drawer that `totals` describes a SUBSET, so it
+             must compare against the search, not against the dashboard figure —
+             otherwise every search would look like a reconciliation failure. */
+          q: f.q,
+          searched: f.q !== null,
           sort: f.sort,
           dir: f.dir,
         },

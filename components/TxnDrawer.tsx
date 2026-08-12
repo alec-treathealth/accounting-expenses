@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usdExact } from "@/lib/format";
+/* Type-and-constant only: lib/txnQuery.ts is pure query-building with no
+   server-only imports, so sharing MAX_Q keeps the input's maxLength and the
+   server's cap from drifting apart. The server still enforces it — this is
+   only the affordance. */
+import { MAX_Q } from "@/lib/txnQuery";
 
 // Transaction drill-down panel. Reads /api/txn (server-only, service_role,
 // gated) — never fact_txn directly, which is private by design.
@@ -46,6 +51,8 @@ type Payload = {
   totals: { amount: number | null; count: number; exact: boolean };
   truncated: boolean;
   detail_available: boolean;
+  /** The server echoes the sanitized search term and whether one was applied. */
+  filters?: { q?: string | null; searched?: boolean };
 };
 
 const SORTABLE = { txn_date: "Date", amount: "Amount" } as const;
@@ -61,12 +68,26 @@ export default function TxnDrawer({ ctx, onClose }: { ctx: DrillContext; onClose
   const [data, setData] = useState<Payload | null>(null);
   const [err, setErr] = useState<{ status: number; message: string } | null>(null);
   const [busy, setBusy] = useState(true);
+  /* Two pieces of search state on purpose: `draft` is what the box shows and
+     `q` is what has been sent. Searching on every keystroke would fire a paged
+     COUNT plus a chunked SUM over fact_txn per character; debouncing the
+     committed value keeps that to one round-trip per pause. */
+  const [draft, setDraft] = useState("");
+  const [q, setQ] = useState("");
 
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const key = JSON.stringify(ctx.filters);
-  useEffect(() => setOffset(0), [key, limit, sort, dir]);
+  // A new search is a new population, so it must restart at page 1 — otherwise
+  // an offset from the previous result set silently hides matching rows.
+  useEffect(() => setOffset(0), [key, limit, sort, dir, q]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setQ(draft.trim()), 260);
+    return () => clearTimeout(t);
+  }, [draft]);
 
   // Focus management: move focus into the dialog, lock background scroll, and
   // hand focus back to whatever opened it on close.
@@ -107,6 +128,7 @@ export default function TxnDrawer({ ctx, onClose }: { ctx: DrillContext; onClose
     if (f.kpi_group) qs.set("kpi_group", f.kpi_group);
     if (f.account_label) qs.set("account_label", f.account_label);
     if (f.vendor) qs.set("vendor", f.vendor);
+    if (q) qs.set("q", q);
     qs.set("limit", String(limit));
     qs.set("offset", String(offset));
     qs.set("sort", sort);
@@ -136,7 +158,7 @@ export default function TxnDrawer({ ctx, onClose }: { ctx: DrillContext; onClose
       }
     })();
     return () => ac.abort();
-  }, [key, limit, offset, sort, dir, ctx.filters]);
+  }, [key, limit, offset, sort, dir, q, ctx.filters]);
 
   // Tab trap. Escape is handled on the document (see above).
   const onKeyDown = useCallback(
@@ -172,8 +194,24 @@ export default function TxnDrawer({ ctx, onClose }: { ctx: DrillContext; onClose
   const count = totals?.count ?? 0;
   const detailTotal = totals?.exact ? totals.amount : null;
   const expected = ctx.expected || null;
-  const diff = expected && expected.compare && detailTotal !== null ? detailTotal - expected.amount : 0;
+
+  /* A search makes the rows a SUBSET of the drilled slice, so the totals stop
+     being comparable to the dashboard figure — they are now "the searched
+     part of it". Trust the server's echo over local state: `searched` reflects
+     the term that actually ran after sanitizing, so a term reduced to nothing
+     correctly keeps full reconciliation instead of silently disabling it.
+     Without this, typing in the box would fire "Does not reconcile" on a
+     perfectly reconciled dataset — turning the drawer's most valuable signal
+     into noise. */
+  const searched = data?.filters?.searched ?? false;
+  const effectiveQ = data?.filters?.q ?? null;
+  const compare = Boolean(expected && expected.compare && !searched);
+  const diff = compare && detailTotal !== null ? detailTotal - expected!.amount : 0;
   const reconciles = Math.abs(diff) < 0.005;
+  /* Punctuation is stripped before the term reaches the database (it is
+     interpolated into a PostgREST or= filter). Say so when it happened, rather
+     than appearing to ignore what was typed. */
+  const termAltered = searched && effectiveQ !== null && effectiveQ !== draft.trim();
   const showing = data && data.rows.length > 0 ? `${offset + 1}–${offset + data.rows.length}` : "0";
 
   const setSortKey = (k: Sort) => {
@@ -225,11 +263,53 @@ export default function TxnDrawer({ ctx, onClose }: { ctx: DrillContext; onClose
                 {expected.n ? <span className="dd-dim"> · {expected.n.toLocaleString()} txns</span> : null}
               </span>
             )}
+            {searched && (
+              <span className="dd-dim">
+                matching “{effectiveQ}” — a subset of this slice, not the whole figure
+              </span>
+            )}
           </div>
+
+          {/* Search narrows the CURRENT drill server-side; it never widens it,
+              and it cannot stand in for a filter (see filter_required in
+              lib/txnQuery.ts), so it can only ever look inside the slice the
+              user already opened. */}
+          <div className="dd-search">
+            <label className="sr-only" htmlFor="dd-q">Search payee, description or account</label>
+            <input
+              id="dd-q"
+              ref={searchRef}
+              className="input"
+              type="search"
+              inputMode="search"
+              maxLength={MAX_Q}
+              placeholder="Search payee, description or account…"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape" && draft) { e.stopPropagation(); setDraft(""); }
+                if (e.key === "Enter") setQ(draft.trim());
+              }}
+            />
+            {draft && (
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => { setDraft(""); searchRef.current?.focus(); }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {termAltered && (
+            <div className="dd-search-hint">
+              Searched <span className="mono">{effectiveQ}</span> — characters that are structural in a database
+              filter were removed.
+            </div>
+          )}
 
           {/* When fact_txn is empty there is nothing to reconcile — the empty
               state below explains it without a red alarm on every click. */}
-          {expected && expected.compare && detailTotal !== null && !reconciles && data?.detail_available !== false && (
+          {expected && compare && detailTotal !== null && !reconciles && data?.detail_available !== false && (
             <div className="dd-warn" role="alert">
               <b>Does not reconcile.</b> The dashboard figure is {usdExact(expected.amount)} but the transaction
               detail sums to {usdExact(detailTotal)} ({usdExact(diff)} difference). The aggregate tables are the
@@ -237,7 +317,7 @@ export default function TxnDrawer({ ctx, onClose }: { ctx: DrillContext; onClose
               treat this list as complete.
             </div>
           )}
-          {expected && expected.compare && detailTotal !== null && reconciles && count > 0 && (
+          {compare && detailTotal !== null && reconciles && count > 0 && (
             <div className="dd-ok">Detail sums exactly to the dashboard figure.</div>
           )}
           {expected && !expected.compare && (

@@ -17,16 +17,27 @@ export const usdShort = (n: number) => {
 
 export const pct = (n: number) => (n * 100).toFixed(1) + "%";
 
+/* KPI group → design-system chart series slot.
+   The series is ordered for categorical data: slots 1-4 stay distinguishable
+   under deuteranopia (which is why info/blue precedes warn/amber), so the four
+   largest groups — together ~85% of spend and the ones actually scanned — take
+   those. Slots 7-8 are this app's extension of the shipped 6-slot series,
+   because the taxonomy has eight groups.
+
+   Slot 8 is --color-danger, and that is deliberate rather than decorative:
+   "Unclassified expense" is the data-quality exception the header banner
+   already warns about, so severity is the correct reading. Every other group
+   uses an accent/coral/status ramp step, never danger. */
 export const GROUP_COLOR: Record<string, string> = {
-  "Payroll Expenses": "--g1",
-  "General Business Expenses": "--g2",
-  "Contract Labor": "--g3",
-  "Cost of Goods Sold": "--g4",
-  "Advertising & Marketing": "--g5",
-  "Other Business Expenses": "--g6",
-  "IT Expense": "--g7",
-  "Unclassified expense": "--g8",
-  Unmapped: "--g8",
+  "Payroll Expenses": "--chart-1",
+  "General Business Expenses": "--chart-2",
+  "Contract Labor": "--chart-3",
+  "Cost of Goods Sold": "--chart-4",
+  "Advertising & Marketing": "--chart-5",
+  "Other Business Expenses": "--chart-6",
+  "IT Expense": "--chart-7",
+  "Unclassified expense": "--chart-8",
+  Unmapped: "--chart-8",
 };
 
 export const GROUP_ORDER = [

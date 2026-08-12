@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseBrowser";
 import { usd, usdShort, pct, GROUP_COLOR, GROUP_ORDER, MONTH_LABEL } from "@/lib/format";
 import TxnDrawer, { type DrillContext, type DrillFilters } from "@/components/TxnDrawer";
+import { usePrefs } from "@/components/usePrefs";
 
 type GM = { facility: string; posted_period: string; kpi_group: string; amount: number; n: number };
 type AA = { account_label: string; account_num: string | null; kpi_group: string; kind: string; amount: number; n: number };
@@ -11,8 +12,49 @@ type AV = { facility: string; vendor: string; kpi_group: string; amount: number;
 type FAC = { facility: string; entity_raw: string; in_scope: boolean; note: string | null };
 
 const MONTHS = ["2026-04", "2026-05", "2026-06", "2026-07", "2026-08"];
-const cvar = (v: string) => (typeof window === "undefined" ? "" : getComputedStyle(document.documentElement).getPropertyValue(v).trim());
-const gcolor = (g: string) => cvar(GROUP_COLOR[g] || "--g8");
+
+/* A KPI group's color is the design-system chart-series custom property, used
+   as a CSS value rather than a resolved hex. This used to read the computed
+   value off <html> and force a re-render on every theme flip, because a
+   snapshot hex cannot follow the ground; `var()` follows it for free, in CSS,
+   with no React involvement. SVG `fill` accepts it exactly like `background`. */
+const gcolor = (g: string) => `var(${GROUP_COLOR[g] ?? "--chart-8"})`;
+
+/* Staggered entrance. `ths-rise` has fill-mode `both`, so a delay holds the
+   element at its from-state until its turn and the row reads as one movement
+   rather than four simultaneous pops. Both the OS reduced-motion setting and
+   the in-app Motion switch collapse this to ~0ms in components.css, so this is
+   safe to apply unconditionally. */
+const rise = (i: number) => ({ animationDelay: `${i * 45}ms` });
+
+/** Shimmer placeholder for a figure that has not arrived yet.
+ *  Never render a zero while loading: on a financial dashboard "$0" is a
+ *  claim about the business, not a loading state. */
+function Sk({ className = "", w }: { className?: string; w?: number | string }) {
+  return (
+    <span
+      className={`ths-skeleton ${className}`}
+      style={{ display: "block", width: w }}
+      aria-hidden="true"
+    />
+  );
+}
+
+/** Placeholder bar rows, sized like the real ones so nothing shifts on arrival. */
+function SkRows({ n }: { n: number }) {
+  return (
+    <div aria-busy="true" aria-live="polite">
+      <span className="sr-only">Loading figures…</span>
+      {Array.from({ length: n }, (_, i) => (
+        <div className="sk-row" key={i}>
+          <Sk className="sk-line" w={`${58 + ((i * 13) % 34)}%`} />
+          <Sk className="sk-line" />
+          <Sk className="sk-line" w="70%" />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function Dashboard({ reloadKey }: { reloadKey: number }) {
   const [gm, setGm] = useState<GM[]>([]);
@@ -22,28 +64,60 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
   const [live, setLive] = useState(false);
   const [fac, setFac] = useState("All");
   const [mon, setMon] = useState("All");
-  const [, force] = useState(0);
   const [drill, setDrill] = useState<DrillContext | null>(null);
+  /* Per-dataset arrival, not one global flag. The four reads are independent,
+     so a panel should render the moment ITS data lands instead of every panel
+     waiting on the slowest query. `gm` gates the figures that must reconcile;
+     `av` and `aa` gate their own panels. */
+  const [got, setGot] = useState({ gm: false, aa: false, av: false, dim: false });
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const { ground, density, motion, toggleGround, setDensity, setMotion } = usePrefs();
 
   useEffect(() => {
     let ok = true;
-    (async () => {
-      const sb = getSupabaseBrowser();
-      const [g, a, v, f] = await Promise.all([
-        sb.from("agg_group_month").select("*").limit(5000),
-        sb.from("agg_account").select("*").limit(2000),
-        sb.from("agg_vendor").select("*").limit(5000),
-        sb.from("dim_facility").select("*").limit(100),
-      ]);
+    const sb = getSupabaseBrowser();
+    setLoadError(null);
+
+    // Fire all four together, but resolve them independently so each panel
+    // streams in. Promise.all would gate the whole page on the slowest read.
+    const fail = (what: string) => (e: unknown) => {
       if (!ok) return;
-      if (g.data) {
-        setGm(g.data.map((r: any) => ({ ...r, posted_period: String(r.posted_period).slice(0, 7), amount: +r.amount })));
-        setLive(true);
-      }
-      if (a.data) setAa(a.data.map((r: any) => ({ ...r, amount: +r.amount })));
-      if (v.data) setAv(v.data.map((r: any) => ({ ...r, amount: +r.amount })));
-      if (f.data) setDim(f.data as FAC[]);
-    })();
+      // Generic to the user, specific in the console — the message can carry
+      // PostgREST detail we do not want rendered into the page.
+      console.error(`[dashboard] ${what} read failed`, e);
+      setLoadError("Could not load some figures. Refresh to retry.");
+    };
+
+    sb.from("agg_group_month").select("*").limit(5000).then(({ data, error }) => {
+      if (!ok) return;
+      if (error) return fail("agg_group_month")(error);
+      setGm((data ?? []).map((r: any) => ({ ...r, posted_period: String(r.posted_period).slice(0, 7), amount: +r.amount })));
+      setLive(true);
+      setGot((s) => ({ ...s, gm: true }));
+    }, fail("agg_group_month"));
+
+    sb.from("agg_account").select("*").limit(2000).then(({ data, error }) => {
+      if (!ok) return;
+      if (error) return fail("agg_account")(error);
+      setAa((data ?? []).map((r: any) => ({ ...r, amount: +r.amount })));
+      setGot((s) => ({ ...s, aa: true }));
+    }, fail("agg_account"));
+
+    sb.from("agg_vendor").select("*").limit(5000).then(({ data, error }) => {
+      if (!ok) return;
+      if (error) return fail("agg_vendor")(error);
+      setAv((data ?? []).map((r: any) => ({ ...r, amount: +r.amount })));
+      setGot((s) => ({ ...s, av: true }));
+    }, fail("agg_vendor"));
+
+    sb.from("dim_facility").select("*").limit(100).then(({ data, error }) => {
+      if (!ok) return;
+      if (error) return fail("dim_facility")(error);
+      setDim((data ?? []) as FAC[]);
+      setGot((s) => ({ ...s, dim: true }));
+    }, fail("dim_facility"));
+
     return () => { ok = false; };
   }, [reloadKey]);
 
@@ -109,13 +183,6 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
     setDrill({ title, filters, expected: { amount: a.amount, n: a.n, source: "Dashboard figure", compare: true } });
   };
 
-  const theme = () => {
-    const cur = document.documentElement.getAttribute("data-theme");
-    const dark = cur ? cur === "dark" : matchMedia("(prefers-color-scheme:dark)").matches;
-    document.documentElement.setAttribute("data-theme", dark ? "light" : "dark");
-    force((x) => x + 1);
-  };
-
   const big = byGroup[0] || ["—", 0];
   const avgFull = rows.filter((r) => r.posted_period !== "2026-08").reduce((s, r) => s + r.amount, 0) / 4;
   const reporting = new Set(rows.map((r) => r.facility)).size;
@@ -175,9 +242,41 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
             <option value="All">All months</option>
             {MONTHS.map((x) => <option key={x} value={x}>{x === "2026-08" ? "August (partial)" : new Date(x + "-01").toLocaleString("en-US", { month: "long" })} 2026</option>)}
           </select>
-          <button onClick={theme} aria-label="Toggle theme">◐ Theme</button>
+
+          {/* Display preferences are design-system grounds, not a bespoke theme:
+              each one just sets a data attribute on <html> and every token
+              re-resolves. Density matters on this screen specifically — an
+              accountant reconciling 402 rows wants compact; a review meeting
+              on a projector wants comfortable. */}
+          <div className="seg" role="radiogroup" aria-label="Density">
+            {(["compact", "comfortable"] as const).map((d) => (
+              <label key={d} className="seg-opt">
+                <input type="radio" name="ths-density" checked={density === d} onChange={() => setDensity(d)} />
+                {d === "compact" ? "Compact" : "Comfortable"}
+              </label>
+            ))}
+          </div>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={toggleGround}
+            aria-label={`Switch to ${ground === "dark" ? "light" : "dark"} ground`}
+          >
+            ◐ {ground === "dark" ? "Light" : "Dark"}
+          </button>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => setMotion(motion === "on" ? "off" : "on")}
+            aria-pressed={motion === "off"}
+            title="Stop dashboard animation. Reduced-motion OS settings are always honoured regardless of this switch."
+          >
+            {motion === "on" ? "Motion on" : "Motion off"}
+          </button>
         </div>
       </header>
+
+      {loadError && (
+        <div className="dd-warn" role="alert" style={{ marginTop: "var(--space-4)" }}>{loadError}</div>
+      )}
 
       {Math.abs(unclTot) > 0 && (
         <div className="banner">
@@ -186,8 +285,9 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
       )}
 
       <div className="grid kpis">
-        <div className="card kpi">
-          <div className="lab">Total spend</div><div className="val">{usd(total)}</div>
+        <div className="card kpi ths-rise" style={rise(0)}>
+          <div className="lab">Total spend</div>
+          <div className="val">{got.gm ? usd(total) : <Sk className="sk-kpi" />}</div>
           <div className="foot">{mon === "All" ? "Apr–Aug 2026 (Aug partial)" : MONTH_LABEL[mon] + " 2026"}</div>
           <div className="dd-hint">
             {fac === "All" && mon === "All"
@@ -195,20 +295,42 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
               : <button className="dd-link" onClick={() => openAgg(scope(), "Total spend")}>View transactions</button>}
           </div>
         </div>
-        <div className="card kpi">
-          <div className="lab">Largest group</div><div className="val">{usd(big[1] as number)}</div>
-          <div className="foot">{big[0]} · {pct((big[1] as number) / (total || 1))}</div>
+        <div className="card kpi ths-rise" style={rise(1)}>
+          <div className="lab">Largest group</div>
+          <div className="val">{got.gm ? usd(big[1] as number) : <Sk className="sk-kpi" />}</div>
+          <div className="foot">{got.gm ? `${big[0]} · ${pct((big[1] as number) / (total || 1))}` : " "}</div>
           <div className="dd-hint">
             {big[1] ? <button className="dd-link" onClick={() => openAgg({ ...scope(), kpi_group: String(big[0]) }, String(big[0]))}>View transactions</button> : "—"}
           </div>
         </div>
-        <div className="card kpi"><div className="lab">Facilities reporting</div><div className="val">{reporting}{fac === "All" ? ` of ${rosterCount}` : ""}</div><div className="foot">{fac !== "All" ? fac : silent.length ? `${silent.join(", ")} ${silent.length === 1 ? "has" : "have"} no expense accounts` : "all facilities reporting"}</div></div>
-        <div className="card kpi"><div className="lab">Avg / full month</div><div className="val">{usd(avgFull)}</div><div className="foot">Apr–Jul, excludes partial Aug</div></div>
+        {/* Roster vs reporting. These are different questions and the card used
+            to blur them: every in-scope facility IS counted in the denominator,
+            including the ones with no expense accounts in this export. Saying
+            "all N in scope" up front stops "13 of 15" reading as though two
+            facilities had been dropped. See the data-quality panel for why each
+            silent facility is silent — the two reasons are not the same. */}
+        <div className="card kpi ths-rise" style={rise(2)}>
+          <div className="lab">Facilities reporting</div>
+          <div className="val">{got.gm ? <>{reporting}{fac === "All" ? ` of ${rosterCount}` : ""}</> : <Sk className="sk-kpi" />}</div>
+          <div className="foot">
+            {fac !== "All"
+              ? fac
+              : silent.length
+                ? `all ${rosterCount} in scope · ${silent.length} with no expense accounts in this export`
+                : `all ${rosterCount} in scope and reporting`}
+          </div>
+        </div>
+        <div className="card kpi ths-rise" style={rise(3)}>
+          <div className="lab">Avg / full month</div>
+          <div className="val">{got.gm ? usd(avgFull) : <Sk className="sk-kpi" />}</div>
+          <div className="foot">Apr–Jul, excludes partial Aug</div>
+        </div>
       </div>
 
       <section className="two">
         <div className="card">
           <h2>Spend by KPI group <span className="dd-dim" style={{ fontWeight: 400 }}>· click a bar for transactions</span></h2>
+          {!got.gm && <SkRows n={8} />}
           {byGroup.map(([g, v]) => (
             <button
               type="button"
@@ -226,6 +348,7 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
         </div>
         <div className="card">
           <h2>Spend by facility <span className="dd-dim" style={{ fontWeight: 400 }}>· click a bar for transactions</span></h2>
+          {!got.gm && <SkRows n={13} />}
           {byFac.map(([f, v]) => (
             <button
               type="button"
@@ -246,7 +369,7 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
       <section className="card">
         <h2>Monthly spend by group{fac === "All" ? "" : " — " + fac}</h2>
         <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Monthly spend by group">
-          {[0, 1, 2, 3, 4].map((i) => { const y = padT + (H - padT - padB) * i / 4; return <line key={i} x1={8} x2={W} y1={y} y2={y} stroke="var(--grid)" strokeWidth={1} />; })}
+          {[0, 1, 2, 3, 4].map((i) => { const y = padT + (H - padT - padB) * i / 4; return <line key={i} x1={8} x2={W} y1={y} y2={y} stroke="var(--chart-grid)" strokeWidth={1} />; })}
           {MONTHS.map((mo, i) => {
             const x = 8 + gap * i + (gap - bw) / 2;
             let yTop = H - padB;
@@ -268,8 +391,8 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
             return (
               <g key={mo}>
                 {rects}
-                <text x={x + bw / 2} y={H - 9} textAnchor="middle" fontSize={11} fill="var(--muted)">{MONTH_LABEL[mo]}</text>
-                <text x={x + bw / 2} y={tTop} textAnchor="middle" fontSize={10.5} fill="var(--ink2)" className="mono">{usdShort(stack.totals[i])}</text>
+                <text x={x + bw / 2} y={H - 9} textAnchor="middle" fontSize={11} fill="var(--text-meta)">{MONTH_LABEL[mo]}</text>
+                <text x={x + bw / 2} y={tTop} textAnchor="middle" fontSize={10.5} fill="var(--text-secondary)" className="mono">{usdShort(stack.totals[i])}</text>
               </g>
             );
           })}
@@ -287,6 +410,9 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
             <table>
               <thead><tr><th>Vendor</th><th>Group</th><th className="num">Amount</th><th className="num">Txns</th></tr></thead>
               <tbody>
+                {!got.av && (
+                  <tr><td colSpan={4} style={{ padding: 0 }}><SkRows n={6} /></td></tr>
+                )}
                 {vendors.map((v, i) => {
                   const ic = /\(IC\b|IC Vendor|IC Customer/i.test(v.vendor);
                   return (
