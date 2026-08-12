@@ -23,8 +23,12 @@ type Row = MapRow & { amount: number; n: number; inAgg: boolean };
 type Probe = { fact_rows: number; agg_total: number };
 
 const TOKEN_KEY = "aed_admin_token";
-const cvar = (v: string) =>
-  typeof window === "undefined" ? "" : getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+/* The group swatch is the design-system chart-series custom property used as a
+   CSS value. Reading the computed value instead would snapshot a hex that
+   cannot follow [data-ground], and would silently return "" for any token the
+   read happened to miss. */
+const gcolor = (g: string) => `var(${GROUP_COLOR[g] ?? "--chart-8"})`;
 
 export default function MappingEditor() {
   const [rows, setRows] = useState<Row[]>([]);
@@ -213,7 +217,7 @@ export default function MappingEditor() {
   };
 
   const sw = (g: string) => (
-    <span className="sw" style={{ background: cvar(GROUP_COLOR[g] || "--g8") }} />
+    <span className="sw" style={{ background: gcolor(g) }} />
   );
 
   return (

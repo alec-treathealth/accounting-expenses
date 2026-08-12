@@ -42,11 +42,40 @@ export type TxnFilters = {
   kpi_group: string | null;
   account_label: string | null;
   vendor: string | null;
+  /** Free-text search over payee / description / account, already sanitized. */
+  q: string | null;
   limit: number;
   offset: number;
   sort: SortKey;
   dir: "asc" | "desc";
 };
+
+/** Longest accepted search term. Bounded because it is the only filter value
+ *  that is not drawn from an allowlist. */
+export const MAX_Q = 64;
+
+/* Search columns. `description` and `name` are what a human recognises; the
+   account label is included so "6165" or "laboratory" finds its rows. */
+export const Q_COLUMNS = ["name", "description", "account_label"] as const;
+
+/* Every other filter value is checked against an allowlist built from the
+   aggregate tables, so it cannot be anything the warehouse does not already
+   contain. A search term cannot work that way, so it is sanitized instead.
+   This is NOT cosmetic: the term is interpolated into a PostgREST `or=` filter
+   string, where "," separates conditions, "(" / ")" group them and "*" is the
+   ilike wildcard. A term containing those could change the filter's MEANING
+   rather than just its text — filter injection, the REST equivalent of SQL
+   injection. So the value is reduced to a conservative character class,
+   collapsed, and length-capped, and the sanitized form is echoed back to the
+   client so the UI can show what was actually searched rather than what was
+   typed. */
+export function sanitizeQ(raw: string): string {
+  return raw
+    .replace(/[^A-Za-z0-9 &'\-./#+]/g, " ") // drop , ( ) " \ * % _ and friends
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_Q);
+}
 
 export type Allowlists = {
   facilities: Set<string>;
@@ -127,6 +156,15 @@ export function parseTxnParams(sp: URLSearchParams, allow: Allowlists): ParseRes
   const dirRaw = (one(sp, "dir") || "asc").toLowerCase();
   if (dirRaw !== "asc" && dirRaw !== "desc") return bad("bad_dir", "dir must be asc or desc.");
 
+  /* Search is deliberately NOT part of the filter_required set above. A term on
+     its own would make `?q=a` a full-table scan of transaction detail, which is
+     the exact thing that rule exists to prevent. It can only narrow a drill
+     that is already scoped by facility / month / group / account / vendor.
+     A term that sanitizes down to nothing (e.g. only punctuation) is treated as
+     absent rather than as an error — it would match everything anyway. */
+  const qRaw = one(sp, "q");
+  const q = qRaw ? sanitizeQ(qRaw) || null : null;
+
   return {
     ok: true,
     filters: {
@@ -135,6 +173,7 @@ export function parseTxnParams(sp: URLSearchParams, allow: Allowlists): ParseRes
       kpi_group,
       account_label,
       vendor,
+      q,
       limit,
       offset,
       sort: sortRaw as SortKey,
@@ -196,6 +235,12 @@ function applyFilters(q: PgBuilder, f: TxnFilters): PgBuilder {
   if (f.kpi_group) q = q.eq("kpi_group", f.kpi_group);
   if (f.account_label) q = q.eq("account_label", f.account_label);
   if (f.vendor) q = f.vendor === NO_PAYEE ? q.or("name.is.null,name.eq.") : q.eq("name", f.vendor);
+  // Search LAST so it narrows the scoped set rather than replacing it: a drill
+  // into (Hillside, July, Payroll) that is then searched must stay inside that
+  // slice. Because this function feeds BOTH the page read and the total read in
+  // fetchTxnPage, the reported total automatically describes the searched
+  // subset — the two can never disagree.
+  if (f.q) q = q.or(Q_COLUMNS.map((c) => `${c}.ilike.*${f.q}*`).join(","));
   return q;
 }
 
