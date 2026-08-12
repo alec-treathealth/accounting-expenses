@@ -1,6 +1,13 @@
 export const usd = (n: number) =>
   (n < 0 ? "-" : "") + "$" + Math.abs(Math.round(n)).toLocaleString();
 
+// Cents-exact, for transaction detail and reconciliation figures where a
+// rounded dollar amount would hide a mismatch.
+export const usdExact = (n: number) =>
+  (n < 0 ? "-" : "") +
+  "$" +
+  Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 export const usdShort = (n: number) => {
   const a = Math.abs(n);
   if (a >= 1e6) return "$" + (n / 1e6).toFixed(2) + "M";

@@ -78,3 +78,48 @@ footer { margin-top: 20px; color: var(--muted); font-size: 11px; line-height: 1.
 .small { font-size: 12px; color: var(--ink2); }
 .progress { height: 6px; background: var(--grid); border-radius: 4px; overflow: hidden; margin-top: 8px; }
 .progress > div { height: 100%; background: var(--g1); transition: width .2s; }
+
+/* transaction drill-down (additive: new classes only) */
+.dd-trigger { appearance: none; -webkit-appearance: none; background: none; border: 0; padding: 0; width: 100%; font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: 6px; }
+.dd-trigger:hover .track { background: var(--axis); }
+.dd-trigger:hover .bar-lab, .dd-trigger:hover .bar-val { color: var(--ink); }
+.dd-trigger:focus-visible { outline: 2px solid var(--g1); outline-offset: 2px; }
+.dd-card { cursor: pointer; text-align: left; width: 100%; display: block; }
+.dd-card:hover { border-color: var(--axis); }
+.dd-seg { cursor: pointer; }
+.dd-seg:hover { opacity: .82; }
+.dd-seg:focus-visible { outline: 2px solid var(--g1); }
+.dd-link { appearance: none; background: none; border: 0; padding: 0; font: inherit; color: var(--ink); text-align: left; cursor: pointer; text-decoration: underline; text-decoration-color: var(--axis); text-underline-offset: 2px; }
+.dd-link:hover { text-decoration-color: var(--g1); }
+.dd-link:focus-visible { outline: 2px solid var(--g1); outline-offset: 2px; border-radius: 3px; }
+.dd-hint { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+.dd-backdrop { position: fixed; inset: 0; z-index: 40; display: flex; justify-content: flex-end; background: rgba(11, 11, 11, .34); }
+:root[data-theme="dark"] .dd-backdrop { background: rgba(0, 0, 0, .62); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .dd-backdrop { background: rgba(0, 0, 0, .62); } }
+.dd-panel { display: flex; flex-direction: column; width: min(960px, 100%); height: 100%; background: var(--surface); border-left: 1px solid var(--border); box-shadow: -10px 0 34px rgba(0, 0, 0, .18); }
+.dd-head { padding: 13px 16px 12px; border-bottom: 1px solid var(--border); }
+.dd-head-row { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; }
+.dd-title { font-size: 13.5px; font-weight: 640; margin: 0; }
+.dd-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.dd-chip { font-size: 11px; color: var(--ink2); border: 1px solid var(--border); background: var(--plane); border-radius: 20px; padding: 2px 9px; }
+.dd-close { line-height: 1; padding: 5px 9px; }
+.dd-recon { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 10px; font-size: 12px; color: var(--ink2); }
+.dd-recon b { color: var(--ink); }
+.dd-dim { color: var(--muted); }
+.dd-warn { margin-top: 10px; border: 1px solid var(--bad); background: rgba(192, 57, 43, .1); color: var(--ink); border-radius: 8px; padding: 8px 10px; font-size: 12px; }
+.dd-ok { margin-top: 8px; font-size: 11.5px; color: var(--good); }
+.dd-note { margin-top: 8px; border: 1px solid var(--border); background: var(--plane); color: var(--ink2); border-radius: 8px; padding: 8px 10px; font-size: 12px; }
+.dd-body { flex: 1; overflow: auto; padding: 0 16px; }
+.dd-table { width: 100%; }
+.dd-table th { position: sticky; top: 0; z-index: 1; background: var(--surface); }
+.dd-table td { vertical-align: top; }
+.dd-nowrap { white-space: nowrap; }
+.dd-clip { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dd-sort { appearance: none; background: none; border: 0; padding: 0; font: inherit; color: var(--muted); cursor: pointer; text-transform: inherit; letter-spacing: inherit; }
+.dd-sort:hover { color: var(--ink); }
+.dd-empty { padding: 34px 12px; text-align: center; font-size: 12.5px; color: var(--ink2); }
+.dd-foot { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; padding: 10px 16px; border-top: 1px solid var(--border); }
+.dd-pager { display: flex; gap: 6px; align-items: center; }
+.dd-pager button:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 720px) { .dd-clip { max-width: 130px; } .dd-panel { width: 100%; } }
