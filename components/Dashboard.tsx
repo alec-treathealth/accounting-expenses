@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseBrowser";
 import { usd, usdShort, pct, GROUP_COLOR, GROUP_ORDER, MONTH_LABEL } from "@/lib/format";
+import TxnDrawer, { type DrillContext, type DrillFilters } from "@/components/TxnDrawer";
 
 type GM = { facility: string; posted_period: string; kpi_group: string; amount: number; n: number };
 type AA = { account_label: string; account_num: string | null; kpi_group: string; kind: string; amount: number; n: number };
@@ -22,6 +23,7 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
   const [fac, setFac] = useState("All");
   const [mon, setMon] = useState("All");
   const [, force] = useState(0);
+  const [drill, setDrill] = useState<DrillContext | null>(null);
 
   useEffect(() => {
     let ok = true;
@@ -80,6 +82,32 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
     gm.filter((r) => mon === "All" || r.posted_period === mon).forEach((r) => { m[r.facility] = (m[r.facility] || 0) + r.amount; });
     return Object.entries(m).sort((a, b) => b[1] - a[1]);
   }, [gm, mon]);
+
+  // --- transaction drill-down -----------------------------------------------
+  // Clicking a figure opens the underlying fact_txn rows via /api/txn (server
+  // only). Drills inherit the dashboard's current facility/month filters, and
+  // carry the on-screen figure so the panel can prove the rows sum to it.
+  const aggFor = (f: DrillFilters) => {
+    let amount = 0;
+    let n = 0;
+    gm.forEach((r) => {
+      if (f.facility && r.facility !== f.facility) return;
+      if (f.month && r.posted_period !== f.month) return;
+      if (f.kpi_group && r.kpi_group !== f.kpi_group) return;
+      amount += r.amount;
+      n += r.n;
+    });
+    return { amount: Math.round(amount * 100) / 100, n };
+  };
+  const scope = (): DrillFilters => ({
+    ...(fac === "All" ? {} : { facility: fac }),
+    ...(mon === "All" ? {} : { month: mon }),
+  });
+  // agg_group_month covers the full population, so its figure is comparable.
+  const openAgg = (filters: DrillFilters, title: string) => {
+    const a = aggFor(filters);
+    setDrill({ title, filters, expected: { amount: a.amount, n: a.n, source: "Dashboard figure", compare: true } });
+  };
 
   const theme = () => {
     const cur = document.documentElement.getAttribute("data-theme");
@@ -158,31 +186,59 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
       )}
 
       <div className="grid kpis">
-        <div className="card kpi"><div className="lab">Total spend</div><div className="val">{usd(total)}</div><div className="foot">{mon === "All" ? "Apr–Aug 2026 (Aug partial)" : MONTH_LABEL[mon] + " 2026"}</div></div>
-        <div className="card kpi"><div className="lab">Largest group</div><div className="val">{usd(big[1] as number)}</div><div className="foot">{big[0]} · {pct((big[1] as number) / (total || 1))}</div></div>
+        <div className="card kpi">
+          <div className="lab">Total spend</div><div className="val">{usd(total)}</div>
+          <div className="foot">{mon === "All" ? "Apr–Aug 2026 (Aug partial)" : MONTH_LABEL[mon] + " 2026"}</div>
+          <div className="dd-hint">
+            {fac === "All" && mon === "All"
+              ? "Filter by facility or month to drill down"
+              : <button className="dd-link" onClick={() => openAgg(scope(), "Total spend")}>View transactions</button>}
+          </div>
+        </div>
+        <div className="card kpi">
+          <div className="lab">Largest group</div><div className="val">{usd(big[1] as number)}</div>
+          <div className="foot">{big[0]} · {pct((big[1] as number) / (total || 1))}</div>
+          <div className="dd-hint">
+            {big[1] ? <button className="dd-link" onClick={() => openAgg({ ...scope(), kpi_group: String(big[0]) }, String(big[0]))}>View transactions</button> : "—"}
+          </div>
+        </div>
         <div className="card kpi"><div className="lab">Facilities reporting</div><div className="val">{reporting}{fac === "All" ? ` of ${rosterCount}` : ""}</div><div className="foot">{fac !== "All" ? fac : silent.length ? `${silent.join(", ")} ${silent.length === 1 ? "has" : "have"} no expense accounts` : "all facilities reporting"}</div></div>
         <div className="card kpi"><div className="lab">Avg / full month</div><div className="val">{usd(avgFull)}</div><div className="foot">Apr–Jul, excludes partial Aug</div></div>
       </div>
 
       <section className="two">
         <div className="card">
-          <h2>Spend by KPI group</h2>
+          <h2>Spend by KPI group <span className="dd-dim" style={{ fontWeight: 400 }}>· click a bar for transactions</span></h2>
           {byGroup.map(([g, v]) => (
-            <div className="bar-row" key={g} title={`${g}: ${usd(v as number)}`}>
+            <button
+              type="button"
+              className="bar-row dd-trigger"
+              key={g}
+              title={`${g}: ${usd(v as number)} — view transactions`}
+              aria-label={`${g}, ${usd(v as number)}. View transactions`}
+              onClick={() => openAgg({ ...scope(), kpi_group: g }, g)}
+            >
               <div className="bar-lab"><span className="sw" style={{ background: gcolor(g) }} />{g}</div>
               <div className="track"><div className="fill" style={{ width: (Math.abs(v as number) / gmax) * 100 + "%", background: gcolor(g) }} /></div>
               <div className="bar-val">{usd(v as number)} <span className="bar-sub">{pct((v as number) / (total || 1))}</span></div>
-            </div>
+            </button>
           ))}
         </div>
         <div className="card">
-          <h2>Spend by facility</h2>
+          <h2>Spend by facility <span className="dd-dim" style={{ fontWeight: 400 }}>· click a bar for transactions</span></h2>
           {byFac.map(([f, v]) => (
-            <div className="bar-row" key={f} title={`${f}: ${usd(v as number)}`}>
+            <button
+              type="button"
+              className="bar-row dd-trigger"
+              key={f}
+              title={`${f}: ${usd(v as number)} — view transactions`}
+              aria-label={`${f}, ${usd(v as number)}. View transactions`}
+              onClick={() => openAgg({ facility: f, ...(mon === "All" ? {} : { month: mon }) }, f)}
+            >
               <div className="bar-lab">{f}</div>
               <div className="track"><div className="fill" style={{ width: (Math.abs(v as number) / fmax) * 100 + "%", background: "var(--seq)", opacity: f === fac ? 1 : 0.85 }} /></div>
               <div className="bar-val">{usd(v as number)}</div>
-            </div>
+            </button>
           ))}
         </div>
       </section>
@@ -197,7 +253,16 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
             const rects = GROUP_ORDER.map((g) => {
               const val = stack.m[mo][g] || 0; if (val <= 0) return null;
               const h = (H - padT - padB) * val / stack.max; yTop -= h;
-              return <rect key={g} x={x} y={yTop} width={bw} height={Math.max(h - 2, 0)} fill={gcolor(g)} rx={1.5}><title>{MONTH_LABEL[mo]} · {g}: {usd(val)}</title></rect>;
+              const open = () => openAgg({ ...(fac === "All" ? {} : { facility: fac }), month: mo, kpi_group: g }, `${MONTH_LABEL[mo]} 2026 · ${g}`);
+              return (
+                <rect
+                  key={g} x={x} y={yTop} width={bw} height={Math.max(h - 2, 0)} fill={gcolor(g)} rx={1.5}
+                  className="dd-seg" role="button" tabIndex={0}
+                  aria-label={`${MONTH_LABEL[mo]} ${g}, ${usd(val)}. View transactions`}
+                  onClick={open}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } }}
+                ><title>{MONTH_LABEL[mo]} · {g}: {usd(val)} — click to view transactions</title></rect>
+              );
             });
             const tTop = (H - padB) - (H - padT - padB) * stack.totals[i] / stack.max - 5;
             return (
@@ -226,7 +291,17 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
                   const ic = /\(IC\b|IC Vendor|IC Customer/i.test(v.vendor);
                   return (
                     <tr key={i}>
-                      <td className="t">{v.vendor.replace(/\(IC Vendor\)/i, "").trim()}{ic && <span className="badge ic">IC</span>}</td>
+                      <td className="t">
+                        <button
+                          className="dd-link"
+                          onClick={() => setDrill({
+                            title: `${v.vendor} · ${v.group}`,
+                            filters: { vendor: v.vendor, kpi_group: v.group, ...(fac === "All" ? {} : { facility: fac }) },
+                            expected: { amount: v.amount, n: v.n, source: "Top-vendor extract", compare: false },
+                          })}
+                        >{v.vendor.replace(/\(IC Vendor\)/i, "").trim()}</button>
+                        {ic && <span className="badge ic">IC</span>}
+                      </td>
                       <td className="t"><span className="sw" style={{ background: gcolor(v.group) }} /> {v.group}</td>
                       <td className="num">{usd(v.amount)}</td>
                       <td className="num">{v.n}</td>
@@ -241,7 +316,21 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
           <h2>Data quality &amp; exceptions</h2>
           <div className="small">
             <div style={{ marginBottom: 8 }}><b>{usd(unclTot)}</b> in {exceptions.length} un-mapped accounts. The <span className="mono">map_account_group</span> table holds the taxonomy; each upload rebuilds from it.</div>
-            <table><tbody>{exceptions.slice(0, 6).map((a) => <tr key={a.account_label}><td className="t">{a.account_label}</td><td className="num">{usd(a.amount)}</td></tr>)}</tbody></table>
+            <table><tbody>{exceptions.slice(0, 6).map((a) => (
+              <tr key={a.account_label}>
+                <td className="t">
+                  <button
+                    className="dd-link"
+                    onClick={() => setDrill({
+                      title: a.account_label,
+                      filters: { account_label: a.account_label },
+                      expected: { amount: a.amount, n: a.n, source: "Account total (all facilities & months)", compare: true },
+                    })}
+                  >{a.account_label}</button>
+                </td>
+                <td className="num">{usd(a.amount)}</td>
+              </tr>
+            ))}</tbody></table>
             {notes.map((f) => <div key={f.facility} style={{ marginTop: 10, paddingLeft: 10, borderLeft: "2px solid var(--axis)" }}><b>{f.facility}:</b> {f.note}</div>)}
             <div style={{ marginTop: 10, color: "var(--muted)" }}>Scope: expense + COGS only; income, equity draws and balance-sheet movement excluded. Only the expense/COGS side of each transaction is summed, so no double-count.</div>
           </div>
@@ -251,6 +340,8 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
       <footer>
         Source: “Consolidated transaction detail” export (QuickBooks) · Warehouse: Supabase <span className="mono">accounting-expenses</span> · Totals reconcile to source to the penny.
       </footer>
+
+      {drill && <TxnDrawer ctx={drill} onClose={() => setDrill(null)} />}
     </>
   );
 }

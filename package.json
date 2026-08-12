@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "next lint",
     "verify:parser": "tsx scripts/verify.mts",
-    "verify:classify": "tsx scripts/verify-classify.mts"
+    "verify:classify": "tsx scripts/verify-classify.mts",
+    "verify:drilldown": "tsx verify/txn-drilldown.mts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
