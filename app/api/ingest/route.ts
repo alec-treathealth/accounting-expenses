@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseServer";
+import { getSessionUser } from "@/lib/supabaseServerAuth";
 
 // Node runtime (not edge) so we can use the service_role key and a longer budget.
 export const runtime = "nodejs";
@@ -13,6 +14,16 @@ type FactRow = {
 };
 
 export async function POST(req: NextRequest) {
+  // This route writes fact_txn and rebuilds every aggregate the dashboard
+  // shows, and until now had NO authentication of its own — it relied entirely
+  // on Vercel Deployment Protection, which is no longer in front of it.
+  if (!(await getSessionUser())) {
+    return NextResponse.json(
+      { error: "unauthenticated", message: "Sign in to upload transaction data." },
+      { status: 401 },
+    );
+  }
+
   let body: any;
   try {
     body = await req.json();
