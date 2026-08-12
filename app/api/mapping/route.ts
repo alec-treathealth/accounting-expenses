@@ -6,6 +6,14 @@ import { GROUP_ORDER } from "@/lib/format";
 // Node runtime (not edge): this route uses the service_role key and node:crypto.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// force-dynamic alone is NOT enough: it makes the ROUTE dynamic but still lets
+// Next serve this handler's outbound PostgREST GETs from the Data Cache, so the
+// fact_txn count and the aggregate total below can be read stale — including
+// immediately after a rebuild, which would report the pre-rebuild figure and
+// make a successful rebuild look like it did nothing. Verified reproducible on
+// the sibling /api/txn route (see PR #6). Opt every fetch in this route out.
+export const fetchCache = "force-no-store";
+export const revalidate = 0;
 
 // ---------------------------------------------------------------------------
 // AUTH GATE  --  needs sign-off, see the PR description.
