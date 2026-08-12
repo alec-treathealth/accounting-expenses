@@ -49,9 +49,17 @@ section { margin-top: 12px; }
 .card h2 { font-size: 13.5px; margin: 0 0 12px; font-weight: 640; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 860px) { .two { grid-template-columns: 1fr; } }
-.bar-row { display: grid; grid-template-columns: 150px 1fr auto; gap: 10px; align-items: center; margin: 7px 0; font-size: 12.5px; }
-.bar-lab { color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
+/* Bar labels are data — KPI group and facility names — so they must never be
+   clipped. At 150px the column cut off ~24 characters, ellipsising "General
+   Business Expenses", "Other Business Expenses", "Advertising & Marketing" and
+   "Northern California Mental Health". Wider column, and wrap instead of
+   truncate so a long name is still fully readable when space runs out. */
+.bar-row { display: grid; grid-template-columns: 200px minmax(64px, 1fr) auto; gap: 10px; align-items: center; margin: 7px 0; font-size: 12.5px; }
+.bar-lab { color: var(--ink2); display: flex; align-items: flex-start; gap: 6px; line-height: 1.35; overflow-wrap: anywhere; }
 .sw { width: 9px; height: 9px; border-radius: 2px; flex: none; display: inline-block; }
+/* keep the swatch on the label's first line when the name wraps */
+.bar-lab .sw { margin-top: 3px; }
+@media (max-width: 480px) { .bar-row { grid-template-columns: 140px minmax(40px, 1fr) auto; } }
 .track { height: 16px; background: var(--grid); border-radius: 3px; position: relative; overflow: hidden; }
 .fill { height: 100%; border-radius: 3px; min-width: 2px; }
 .bar-val { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; color: var(--ink); }
