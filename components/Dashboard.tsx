@@ -2,14 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseBrowser";
-import { usd, usdShort, pct, GROUP_COLOR, GROUP_ORDER, MONTH_LABEL } from "@/lib/format";
+import { usd, usdShort, pct, GROUP_COLOR, GROUP_ORDER, MONTH_LABEL, monthName } from "@/lib/format";
 import TxnDrawer, { type DrillContext, type DrillFilters } from "@/components/TxnDrawer";
 import { usePrefs } from "@/components/usePrefs";
 
 type GM = { facility: string; posted_period: string; kpi_group: string; amount: number; n: number };
 type AA = { account_label: string; account_num: string | null; kpi_group: string; kind: string; amount: number; n: number };
 type AV = { facility: string; vendor: string; kpi_group: string; amount: number; n: number };
-type FAC = { facility: string; entity_raw: string; in_scope: boolean; note: string | null };
+type FAC = { facility: string; entity_raw: string; in_scope: boolean; in_export: boolean; note: string | null };
 
 const MONTHS = ["2026-04", "2026-05", "2026-06", "2026-07", "2026-08"];
 
@@ -133,12 +133,6 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
     return [...s].sort();
   }, [gm, inScope]);
 
-  // in-scope facilities carrying no spend at all — named rather than assumed
-  const silent = useMemo(() => {
-    const spending = new Set(gm.map((r) => r.facility));
-    return inScope.filter((d) => !spending.has(d.facility)).map((d) => d.facility);
-  }, [inScope, gm]);
-
   const rows = useMemo(
     () => gm.filter((r) => (fac === "All" || r.facility === fac) && (mon === "All" || r.posted_period === mon)),
     [gm, fac, mon]
@@ -185,7 +179,32 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
 
   const big = byGroup[0] || ["—", 0];
   const avgFull = rows.filter((r) => r.posted_period !== "2026-08").reduce((s, r) => s + r.amount, 0) / 4;
-  const reporting = new Set(rows.map((r) => r.facility)).size;
+
+  /* "Reporting" means the facility APPEARED in the source export — not that it
+     spent anything. Nashville files 913 transactions in this export, but every
+     one lands in a balance-sheet account (1010 bank, 1100 A/R, 1200 payments to
+     deposit, 1500 vehicles, 2000 A/P), so it contributes no expense and never
+     reaches agg_group_month. It plainly reported; it just had no expense to
+     report. San Diego is the only in-scope facility genuinely absent from the
+     export. Counting presence rather than spend is why this reads 16 of 17 and
+     not 15 — and dim_facility.in_export, not the aggregates, is the source. */
+  const reporting =
+    fac === "All"
+      ? inScope.filter((d) => d.in_export).length
+      : new Set(rows.map((r) => r.facility)).size;
+
+  /* Reported, but with nothing to show: in the export yet no expense rows. */
+  const silentButPresent = useMemo(() => {
+    const spending = new Set(gm.map((r) => r.facility));
+    return inScope.filter((d) => d.in_export && !spending.has(d.facility)).map((d) => d.facility);
+  }, [inScope, gm]);
+
+  /* Absent from the export altogether — a different fact, and not the same as
+     spending nothing. */
+  const absent = useMemo(
+    () => inScope.filter((d) => !d.in_export).map((d) => d.facility),
+    [inScope],
+  );
 
   // vendors
   const vendors = useMemo(() => {
@@ -240,7 +259,7 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
           </select>
           <select aria-label="Month" value={mon} onChange={(e) => setMon(e.target.value)}>
             <option value="All">All months</option>
-            {MONTHS.map((x) => <option key={x} value={x}>{x === "2026-08" ? "August (partial)" : new Date(x + "-01").toLocaleString("en-US", { month: "long" })} 2026</option>)}
+            {MONTHS.map((x) => <option key={x} value={x}>{monthName(x)}{x === "2026-08" ? " (partial)" : ""} {x.slice(0, 4)}</option>)}
           </select>
 
           {/* Display preferences are design-system grounds, not a bespoke theme:
@@ -315,9 +334,15 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
           <div className="foot">
             {fac !== "All"
               ? fac
-              : silent.length
-                ? `all ${rosterCount} in scope · ${silent.length} with no expense accounts in this export`
-                : `all ${rosterCount} in scope and reporting`}
+              : [
+                  `all ${rosterCount} in scope`,
+                  absent.length ? `${absent.length} absent from this export` : "",
+                  silentButPresent.length
+                    ? `${silentButPresent.length} reporting with no expense accounts`
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
           </div>
         </div>
         <div className="card kpi ths-rise" style={rise(3)}>
