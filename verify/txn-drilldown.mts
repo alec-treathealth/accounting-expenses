@@ -28,6 +28,7 @@ import {
   type TxnFilters,
 } from "../lib/txnQuery.ts";
 import { authorizeTxnRequest } from "../lib/txnAuth.ts";
+import { isRampSplit, rampPerson } from "./rampRule.mts";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let failures = 0;
@@ -119,14 +120,33 @@ function makeDb(tables: Record<string, Row[]>): TxnDb {
   };
 }
 
-const factRows: Row[] = ing.factRows.map((f: FactRow) => ({ ...f, kind: f.kind, loaded_at: "2026-08-11T00:00:00Z" }));
+/* is_ramp and ramp_cardholder are PostgREST COMPUTED columns in production
+   (supabase/migrations/0010), evaluated by Postgres. The fixture has no Postgres,
+   so it materialises them here with the independent restatement in
+   verify/rampRule.mts — which verify/ramp.mts separately proves agrees with the
+   SQL against the live warehouse. */
+const factRows: Row[] = ing.factRows.map((f: FactRow) => ({
+  ...f,
+  kind: f.kind,
+  loaded_at: "2026-08-11T00:00:00Z",
+  is_ramp: isRampSplit(f.split),
+  ramp_cardholder: rampPerson(f.description),
+}));
+const rampFixture = factRows.filter((r) => r.is_ramp);
 const db = makeDb({
   fact_txn: factRows,
   dim_facility: [...new Set(ing.factRows.map((f) => f.facility))].map((facility) => ({ facility })),
   agg_account: ing.aggAccount.map((a) => ({ account_label: a.account_label })),
   agg_vendor: ing.aggVendor.map((v) => ({ vendor: v.vendor })),
+  agg_ramp_person: [...new Set(rampFixture.map((r) => r.ramp_cardholder))].map((person) => ({ person })),
 });
-const emptyDb = makeDb({ fact_txn: [], dim_facility: [{ facility: "Hillside" }], agg_account: [], agg_vendor: [] });
+const emptyDb = makeDb({
+  fact_txn: [],
+  dim_facility: [{ facility: "Hillside" }],
+  agg_account: [],
+  agg_vendor: [],
+  agg_ramp_person: [],
+});
 
 resetAllowlistCache();
 const allow: Allowlists = await loadAllowlists(db);
@@ -155,6 +175,24 @@ ok(code("month=2026-07&sort=amount;drop") === "bad_sort", "non-whitelisted sort 
 ok(code("month=2026-07&dir=sideways") === "bad_dir", "bad sort direction refused", code("month=2026-07&dir=sideways"));
 ok(code("month=2026-07") === "ok", "valid month accepted");
 ok(code("posted_period=2026-07-01") === "ok", "posted_period form accepted");
+
+// --- Ramp / cardholder filters ---------------------------------------------
+// `ramp` alone selects 24,226 rows — 81% of the warehouse — so it must NOT
+// satisfy filter_required. A named cardholder must.
+ok(code("ramp=1") === "filter_required", "ramp alone is not a filter", code("ramp=1"));
+ok(code("ramp=yes") === "bad_ramp", "a mistyped ramp value is refused, not read as false", code("ramp=yes"));
+ok(code("person=Nobody%20Here") === "bad_person", "unknown cardholder refused", code("person=Nobody%20Here"));
+ok(code("person=Gia%20Laubertie") === "ok", "known cardholder accepted on its own");
+ok(code("ramp=1&month=2026-07") === "ok", "ramp narrows a filter that already exists");
+{
+  // A person IMPLIES ramp, and the implication must be applied where the filter
+  // set is produced — otherwise the page query and txn_totals() would disagree
+  // and the drawer would report "does not reconcile" against itself.
+  const r = parse("person=Gia%20Laubertie");
+  ok(r.ok && r.filters.ramp === true, "a cardholder implies the Ramp restriction");
+  const q = parse("month=2026-07");
+  ok(q.ok && q.filters.ramp === false && q.filters.person === null, "a plain drill sets neither flag");
+}
 {
   const r = parse("facility=Hillside&month=2026-07&kpi_group=Payroll%20Expenses");
   ok(r.ok && r.filters.limit === 100 && r.filters.offset === 0 && r.filters.sort === "txn_date" && r.filters.dir === "asc",
@@ -398,6 +436,54 @@ console.log("\n== cap, pagination and truncation reporting ==");
     ok(page.totals.count === a.n && page.totals.amount!.toFixed(2) === a.amount.toFixed(2),
       `account drill matches agg_account (${a.account_label.slice(0, 28)})`, `${page.totals.count}/${a.n} rows, $${page.totals.amount!.toFixed(2)}/$${a.amount.toFixed(2)}`);
   }
+}
+
+// --- Ramp drills reconcile ---------------------------------------------------
+// The Expense Intelligence page shows a cardholder's total from agg_ramp_person
+// and then offers a drill; if those two ever disagreed, the panel would be
+// quietly wrong about a named person's spending. Asserted here against the
+// fixture, and again against the live warehouse in verify/ramp.mts.
+console.log("\n== ramp drills ==");
+{
+  const rampTotalCents = rampFixture.reduce((s, r) => s + Math.round(r.amount * 100), 0);
+  ok(rampFixture.length > 0, "the export contains Ramp charges", `${rampFixture.length} rows`);
+
+  const p = parse("ramp=1&month=2026-07");
+  if (p.ok) {
+    const page = await fetchTxnPage(db, p.filters);
+    const want = rampFixture.filter((r) => String(r.posted_period).slice(0, 7) === "2026-07");
+    ok(page.totals.count === want.length,
+      "ramp + month drill counts exactly the Ramp rows in that month", `${page.totals.count} vs ${want.length}`);
+    ok(Math.round(page.totals.amount! * 100) === want.reduce((s, r) => s + Math.round(r.amount * 100), 0),
+      "ramp + month drill totals exactly those rows", `$${page.totals.amount!.toFixed(2)}`);
+  }
+
+  // Biggest cardholder, since that is the row a user is most likely to open.
+  const byPerson = new Map<string, { cents: number; n: number }>();
+  for (const r of rampFixture) {
+    const cur = byPerson.get(r.ramp_cardholder) ?? { cents: 0, n: 0 };
+    cur.cents += Math.round(r.amount * 100);
+    cur.n += 1;
+    byPerson.set(r.ramp_cardholder, cur);
+  }
+  const [person, want] = [...byPerson.entries()].sort((a, b) => b[1].cents - a[1].cents)[0];
+  const pp = parse(`person=${encodeURIComponent(person)}&limit=500`);
+  if (pp.ok) {
+    const page = await fetchTxnPage(db, pp.filters);
+    ok(page.totals.count === want.n, `cardholder drill counts every charge (${person})`, `${page.totals.count} vs ${want.n}`);
+    ok(Math.round(page.totals.amount! * 100) === want.cents,
+      "cardholder drill totals exactly their charges", `$${(want.cents / 100).toFixed(2)}`);
+    ok(page.rows.every((r) => isRampSplit(r.split)),
+      "every row returned for a cardholder is a Ramp charge — the implication holds through the query");
+  }
+
+  // Every cardholder's share must add back up to the whole. If normalisation
+  // dropped or merged someone, this is where it shows.
+  const sumOfPeople = [...byPerson.values()].reduce((s, v) => s + v.cents, 0);
+  ok(sumOfPeople === rampTotalCents,
+    "every cardholder's spend sums back to the whole Ramp slice",
+    `$${(sumOfPeople / 100).toFixed(2)} vs $${(rampTotalCents / 100).toFixed(2)}`);
+  ok(!byPerson.has(""), "normalisation never produces an empty cardholder name");
 }
 
 // --- 8. empty fact_txn (today's production state) ---------------------------

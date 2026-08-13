@@ -13,7 +13,9 @@
     "verify:search": "tsx verify/txn-search.mts",
     "verify:drilldown": "tsx verify/txn-drilldown.mts",
     "verify:lockout": "tsx verify/anon-lockout.mts",
-    "verify:pivot": "tsx verify/pivot.mts"
+    "verify:pivot": "tsx verify/pivot.mts",
+    "verify:ramp": "tsx verify/ramp.mts",
+    "verify:alerts": "tsx verify/alerts.mts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",

@@ -1,0 +1,309 @@
+"use client";
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { getSupabaseBrowser } from "@/lib/supabaseBrowser";
+import { parseAlert, type Alert } from "@/lib/alerts";
+import type { RampPersonRow, RampVendorRow } from "@/lib/ramp";
+import type { DrillContext, DrillFilters } from "@/components/TxnDrawer";
+
+/* ---------------------------------------------------------------------------
+   One warehouse read per session, shared by every route.
+
+   The App Router keeps this provider mounted across navigation, so moving
+   between Dashboard, Intelligence, Compare and Alerts costs zero round trips
+   and the facility/month filters survive the move — which is what makes the
+   alert badge mean "in what I am currently looking at".
+
+   DATASETS ARE FETCHED ON DEMAND, not all at once. Measured payloads:
+
+       agg_group_month   58 kB     agg_ramp_person  146 kB
+       agg_vendor       117 kB     agg_ramp_vendor  113 kB
+       agg_account       13 kB     ramp_alerts       44 kB
+       dim_facility     2.7 kB
+
+   Loading everything on every page meant Compare and Alerts each pulling ~230 kB
+   of vendor and account detail they never render. So gm/dim/alerts load at mount
+   (the filter lists and the nav badge need them everywhere) and the rest are
+   requested by the page that actually uses them, once, and then cached.
+--------------------------------------------------------------------------- */
+
+export type GM = {
+  facility: string;
+  /** "YYYY-MM" */
+  posted_period: string;
+  kpi_group: string;
+  amount: number;
+  n: number;
+};
+export type AA = {
+  account_label: string;
+  account_num: string | null;
+  kpi_group: string;
+  kind: string;
+  amount: number;
+  n: number;
+};
+export type AV = { facility: string; vendor: string; kpi_group: string; amount: number; n: number };
+export type FAC = {
+  facility: string;
+  entity_raw: string;
+  in_scope: boolean;
+  in_export: boolean;
+  note: string | null;
+};
+
+export type DatasetKey = "gm" | "dim" | "alerts" | "aa" | "av" | "ramp" | "rampVendor";
+
+/** Always loaded: every route needs the filter lists and the nav badge. */
+const EAGER: DatasetKey[] = ["gm", "dim", "alerts"];
+
+type Data = {
+  gm: GM[];
+  dim: FAC[];
+  alerts: Alert[];
+  aa: AA[];
+  av: AV[];
+  ramp: RampPersonRow[];
+  rampVendor: RampVendorRow[];
+};
+
+const EMPTY: Data = { gm: [], dim: [], alerts: [], aa: [], av: [], ramp: [], rampVendor: [] };
+
+type Ctx = {
+  data: Data;
+  /** Per-dataset arrival. A panel renders the moment ITS data lands. */
+  got: Record<DatasetKey, boolean>;
+  loadError: string | null;
+  /** Ask for datasets this route needs. Idempotent; safe to call every render. */
+  request: (keys: DatasetKey[]) => void;
+  reload: () => void;
+
+  /** Global filters, shared by every route. */
+  facility: string;
+  setFacility: (v: string) => void;
+  month: string;
+  setMonth: (v: string) => void;
+  facilities: string[];
+  months: string[];
+  /** Facilities in scope per dim_facility, whether or not they spent anything. */
+  rosterCount: number;
+
+  openDrill: (ctx: DrillContext) => void;
+  /** Drill with the current facility/month filters folded in. */
+  scope: () => DrillFilters;
+  /** The agg_group_month figure for a filter, so a drawer can reconcile to it. */
+  aggFor: (f: DrillFilters) => { amount: number; n: number };
+};
+
+const WarehouseCtx = createContext<Ctx | null>(null);
+
+export function useWarehouse(): Ctx {
+  const ctx = useContext(WarehouseCtx);
+  if (!ctx) throw new Error("useWarehouse must be used inside <WarehouseProvider>");
+  return ctx;
+}
+
+/** Declare a route's data needs. Stable across renders via the joined key. */
+export function useDatasets(keys: DatasetKey[]): void {
+  const { request } = useWarehouse();
+  const key = keys.join(",");
+  useEffect(() => {
+    request(key.split(",") as DatasetKey[]);
+  }, [key, request]);
+}
+
+const num = (v: unknown) => Number(v);
+
+export default function WarehouseProvider({
+  children,
+  drill,
+}: {
+  children: React.ReactNode;
+  /** Renders the open drawer. Passed in so this module stays data-only. */
+  drill: (ctx: DrillContext | null, close: () => void) => React.ReactNode;
+}) {
+  const [data, setData] = useState<Data>(EMPTY);
+  const [got, setGot] = useState<Record<DatasetKey, boolean>>({
+    gm: false, dim: false, alerts: false, aa: false, av: false, ramp: false, rampVendor: false,
+  });
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const [facility, setFacility] = useState("All");
+  const [month, setMonth] = useState("All");
+  const [drillCtx, setDrillCtx] = useState<DrillContext | null>(null);
+
+  /* Requested-set in a ref, tick in state. The ref is the source of truth (so a
+     second request for the same dataset is a no-op with no render), and the tick
+     is only there to wake the effect when the set actually grows. */
+  const wanted = useRef<Set<DatasetKey>>(new Set(EAGER));
+  const inflight = useRef<Set<DatasetKey>>(new Set());
+  const [tick, setTick] = useState(0);
+
+  const request = useCallback((keys: DatasetKey[]) => {
+    let grew = false;
+    for (const k of keys) {
+      if (!wanted.current.has(k)) {
+        wanted.current.add(k);
+        grew = true;
+      }
+    }
+    if (grew) setTick((t) => t + 1);
+  }, []);
+
+  const reload = useCallback(() => {
+    inflight.current.clear();
+    setGot({ gm: false, dim: false, alerts: false, aa: false, av: false, ramp: false, rampVendor: false });
+    setReloadKey((k) => k + 1);
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const sb = getSupabaseBrowser();
+
+    const fail = (what: string) => (e: unknown) => {
+      if (!alive) return;
+      // Generic to the user, specific in the console: the message can carry
+      // PostgREST detail that must not be rendered into the page.
+      console.error(`[warehouse] ${what} read failed`, e);
+      setLoadError("Could not load some figures. Refresh to retry.");
+      inflight.current.delete(what as DatasetKey);
+    };
+
+    const land = <K extends DatasetKey>(key: K, rows: Data[K]) => {
+      if (!alive) return;
+      setData((d) => ({ ...d, [key]: rows }));
+      setGot((g) => ({ ...g, [key]: true }));
+    };
+
+    const table = <K extends DatasetKey>(
+      key: K,
+      name: string,
+      limit: number,
+      map: (r: any) => Data[K][number],
+    ) => {
+      sb.from(name)
+        .select("*")
+        .limit(limit)
+        .then(({ data: rows, error }) => {
+          if (!alive) return;
+          if (error) return fail(key)(error);
+          land(key, ((rows ?? []) as any[]).map(map) as Data[K]);
+        }, fail(key));
+    };
+
+    const loaders: Record<DatasetKey, () => void> = {
+      // posted_period arrives as a DATE; every consumer keys on "YYYY-MM".
+      gm: () => table("gm", "agg_group_month", 5000, (r) => ({
+        ...r, posted_period: String(r.posted_period).slice(0, 7), amount: num(r.amount),
+      })),
+      dim: () => table("dim", "dim_facility", 100, (r) => r as FAC),
+      aa: () => table("aa", "agg_account", 2000, (r) => ({ ...r, amount: num(r.amount) })),
+      av: () => table("av", "agg_vendor", 5000, (r) => ({ ...r, amount: num(r.amount) })),
+      ramp: () => table("ramp", "agg_ramp_person", 5000, (r) => ({
+        ...r, posted_period: String(r.posted_period).slice(0, 7), amount: num(r.amount),
+      })),
+      rampVendor: () => table("rampVendor", "agg_ramp_vendor", 5000, (r) => ({
+        ...r, amount: num(r.amount), n: num(r.n), rk: num(r.rk),
+      })),
+      /* Alerts are transaction grain, so they come from the server route rather
+         than a table — fact_txn is not browser-readable and must not become so. */
+      alerts: () => {
+        fetch("/api/alerts", { credentials: "same-origin", headers: { accept: "application/json" } })
+          .then(async (res) => {
+            if (!alive) return;
+            const body = await res.json().catch(() => null);
+            if (!res.ok) throw new Error((body && (body.message || body.error)) || res.statusText);
+            const rows = Array.isArray(body?.alerts) ? body.alerts : [];
+            land("alerts", rows.map(parseAlert).filter(Boolean) as Alert[]);
+          })
+          .catch(fail("alerts"));
+      },
+    };
+
+    for (const key of wanted.current) {
+      if (inflight.current.has(key)) continue;
+      inflight.current.add(key);
+      loaders[key]();
+    }
+
+    return () => {
+      alive = false;
+    };
+  }, [tick, reloadKey]);
+
+  // --- derived filter lists -------------------------------------------------
+
+  // dim_facility is the roster; agg_group_month only holds facilities that spent
+  // something. A facility with no expense accounts in the export must still be
+  // offered in the picker, so the list cannot come from the aggregates alone.
+  const inScope = useMemo(() => data.dim.filter((d) => d.in_scope), [data.dim]);
+
+  const facilities = useMemo(() => {
+    const s = new Set(data.gm.map((r) => r.facility));
+    inScope.forEach((d) => s.add(d.facility));
+    return [...s].sort();
+  }, [data.gm, inScope]);
+
+  /* Derived from the data, never hardcoded. A hardcoded month list is how the
+     dashboard previously ended up able to show a month the warehouse did not
+     have — and to hide one it did. */
+  const months = useMemo(
+    () => [...new Set(data.gm.map((r) => r.posted_period))].sort(),
+    [data.gm],
+  );
+
+  // --- drill-down -----------------------------------------------------------
+
+  const openDrill = useCallback((ctx: DrillContext) => setDrillCtx(ctx), []);
+
+  const scope = useCallback(
+    (): DrillFilters => ({
+      ...(facility === "All" ? {} : { facility }),
+      ...(month === "All" ? {} : { month }),
+    }),
+    [facility, month],
+  );
+
+  const aggFor = useCallback(
+    (f: DrillFilters) => {
+      let amount = 0;
+      let n = 0;
+      for (const r of data.gm) {
+        if (f.facility && r.facility !== f.facility) continue;
+        if (f.month && r.posted_period !== f.month) continue;
+        if (f.kpi_group && r.kpi_group !== f.kpi_group) continue;
+        amount += r.amount;
+        n += r.n;
+      }
+      return { amount: Math.round(amount * 100) / 100, n };
+    },
+    [data.gm],
+  );
+
+  const value = useMemo<Ctx>(
+    () => ({
+      data, got, loadError, request, reload,
+      facility, setFacility, month, setMonth,
+      facilities, months,
+      rosterCount: inScope.length || facilities.length,
+      openDrill, scope, aggFor,
+    }),
+    [data, got, loadError, request, reload, facility, month, facilities, months, inScope.length, openDrill, scope, aggFor],
+  );
+
+  return (
+    <WarehouseCtx.Provider value={value}>
+      {children}
+      {drill(drillCtx, () => setDrillCtx(null))}
+    </WarehouseCtx.Provider>
+  );
+}

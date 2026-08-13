@@ -53,6 +53,10 @@ const TABLES = [
   "agg_vendor",
   "dim_facility",
   "map_account_group",
+  // Added by 0008. These name real employees against real amounts, so they are
+  // the most sensitive aggregates in the warehouse, not the least.
+  "agg_ramp_person",
+  "agg_ramp_vendor",
 ];
 
 console.log("== anonymous PostgREST reads (each must be denied or empty) ==");
@@ -80,6 +84,25 @@ for (const t of TABLES) {
 {
   const { data, error } = await anon.rpc("has_dashboard_access");
   ok(!!error || data !== true, "anon cannot pass has_dashboard_access()", error ? error.code || error.message : `returned ${data}`);
+}
+
+/* Server-only functions. Both are SECURITY DEFINER or read fact_txn directly, so
+   an accidental grant to anon/authenticated would hand out transaction detail
+   without going near /api/txn — the single door this architecture depends on. */
+for (const fn of ["ramp_alerts", "txn_totals"] as const) {
+  const { data, error } = await anon.rpc(fn, fn === "txn_totals" ? { p_ramp: true } : {});
+  const rows = Array.isArray(data) ? data.length : data == null ? 0 : 1;
+  ok(!!error || rows === 0, `anon cannot execute ${fn}()`, error ? error.code || error.message : `rows=${rows}`);
+}
+
+/* The PostgREST computed columns from 0010. fact_txn is already unreadable, but
+   these are new filterable surfaces on it and are worth naming explicitly: a
+   future policy added to fact_txn without thinking about them would expose a
+   cardholder search to anyone holding the publishable key. */
+{
+  const { data, error } = await anon.from("fact_txn").select("row_key,is_ramp,ramp_cardholder").limit(1);
+  const rows = (data ?? []).length;
+  ok(!!error || rows === 0, "anon cannot read the is_ramp / ramp_cardholder computed columns", error ? error.code || error.message : `rows=${rows}`);
 }
 
 console.log(`\n${failures === 0 ? "ALL CHECKS PASSED" : failures + " CHECK(S) FAILED"}`);

@@ -42,6 +42,10 @@ export type TxnFilters = {
   kpi_group: string | null;
   account_label: string | null;
   vendor: string | null;
+  /** Restrict to Ramp card charges. NOT a filter for filter_required purposes. */
+  ramp: boolean;
+  /** Ramp cardholder, as public.ramp_person() derives it from the description. */
+  person: string | null;
   /** Free-text search over payee / description / account, already sanitized. */
   q: string | null;
   limit: number;
@@ -49,6 +53,13 @@ export type TxnFilters = {
   sort: SortKey;
   dir: "asc" | "desc";
 };
+
+/* PostgREST computed columns on fact_txn (supabase/migrations/0010). Filtering
+   through these rather than through `split ilike '2030 Ramp*'` is what keeps the
+   PAGE query and the TOTALS query using ONE definition — see the migration for
+   why a hand-written equivalent is not good enough. */
+export const RAMP_COL = "is_ramp";
+export const PERSON_COL = "ramp_cardholder";
 
 /** Longest accepted search term. Bounded because it is the only filter value
  *  that is not drawn from an allowlist. */
@@ -82,6 +93,8 @@ export type Allowlists = {
   groups: Set<string>;
   accounts: Set<string>;
   vendors: Set<string>;
+  /** Cardholders, from agg_ramp_person — the only place person names are enumerated. */
+  people: Set<string>;
 };
 
 export type ParseResult =
@@ -139,10 +152,32 @@ export function parseTxnParams(sp: URLSearchParams, allow: Allowlists): ParseRes
   const vendor = one(sp, "vendor");
   if (vendor !== null && !allow.vendors.has(vendor)) return bad("bad_vendor", "Unknown vendor.");
 
-  if (!facility && !month && !kpi_group && !account_label && !vendor)
+  const person = one(sp, "person");
+  if (person !== null && !allow.people.has(person)) return bad("bad_person", "Unknown cardholder.");
+
+  /* Ramp restriction. Accepts only the two forms the client sends; anything else
+     is a caller error rather than a silent false, so a typo'd `ramp=yes` fails
+     loudly instead of quietly widening the drill to every transaction.
+
+     A person IMPLIES ramp, and that implication lives HERE — in the one place
+     that produces the filter set — rather than in applyFilters(). It has to:
+     applyFilters() builds the page query and txn_totals() computes the figure
+     the page is checked against, so an implication applied in only one of them
+     would make the drawer report "does not reconcile" against itself. Cardholder
+     names are derived from Ramp descriptions and mean nothing off a Ramp row. */
+  const rampRaw = one(sp, "ramp");
+  if (rampRaw !== null && rampRaw !== "1" && rampRaw !== "true")
+    return bad("bad_ramp", "ramp must be 1 or true.");
+  const ramp = rampRaw !== null || person !== null;
+
+  /* `ramp` is deliberately NOT in this set. On its own it selects 24,226 rows —
+     81% of the warehouse — which is exactly the unfiltered dump this rule
+     exists to prevent. `person` IS in the set: it names one cardholder, and the
+     largest of them is 3,606 rows. */
+  if (!facility && !month && !kpi_group && !account_label && !vendor && !person)
     return bad(
       "filter_required",
-      "At least one of facility, month, kpi_group, account_label or vendor is required — transaction detail is not dumped unfiltered.",
+      "At least one of facility, month, kpi_group, account_label, vendor or person is required — transaction detail is not dumped unfiltered.",
     );
 
   const limit = intParam(sp, "limit", DEFAULT_LIMIT, 1, MAX_LIMIT);
@@ -173,6 +208,8 @@ export function parseTxnParams(sp: URLSearchParams, allow: Allowlists): ParseRes
       kpi_group,
       account_label,
       vendor,
+      ramp,
+      person,
       q,
       limit,
       offset,
@@ -239,6 +276,12 @@ function applyFilters(q: PgBuilder, f: TxnFilters): PgBuilder {
   if (f.kpi_group) q = q.eq("kpi_group", f.kpi_group);
   if (f.account_label) q = q.eq("account_label", f.account_label);
   if (f.vendor) q = f.vendor === NO_PAYEE ? q.or("name.is.null,name.eq.") : q.eq("name", f.vendor);
+  /* Computed columns, so this predicate IS public.is_ramp_split() and
+     public.ramp_person() rather than a re-implementation of them. The
+     person-implies-ramp rule was already applied in parseTxnParams, so this
+     reads the flags plainly. */
+  if (f.ramp) q = q.eq(RAMP_COL, true);
+  if (f.person) q = q.eq(PERSON_COL, f.person);
   // Search LAST so it narrows the scoped set rather than replacing it: a drill
   // into (Hillside, July, Payroll) that is then searched must stay inside that
   // slice. Because this function feeds BOTH the page read and the total read in
@@ -296,6 +339,8 @@ export async function fetchTxnPage(db: TxnDb, f: TxnFilters): Promise<TxnPage> {
       p_vendor: f.vendor === NO_PAYEE ? null : f.vendor,
       p_no_payee: f.vendor === NO_PAYEE,
       p_q: f.q,
+      p_ramp: f.ramp,
+      p_person: f.person,
     });
     if (res.error) throw new TxnQueryError(res.error.message);
     const row = Array.isArray(res.data) ? res.data[0] : res.data;
@@ -345,18 +390,23 @@ let allowCache: { at: number; value: Allowlists } | null = null;
 export async function loadAllowlists(db: TxnDb, now = Date.now()): Promise<Allowlists> {
   if (allowCache && now - allowCache.at < ALLOW_TTL_MS) return allowCache.value;
 
-  const [facs, accts, vends] = await Promise.all([
+  const [facs, accts, vends, people] = await Promise.all([
     db.from("dim_facility").select("facility").range(0, 999),
     db.from("agg_account").select("account_label").range(0, 4999),
     db.from("agg_vendor").select("vendor").range(0, 4999),
+    // 1,493 rows with ~90 distinct values; the Set dedupes. Reading the
+    // aggregate rather than fact_txn keeps this a cheap indexed scan and means
+    // the allowlist is exactly the set of people the UI can offer.
+    db.from("agg_ramp_person").select("person").range(0, 4999),
   ]);
-  for (const r of [facs, accts, vends]) if (r.error) throw new TxnQueryError(r.error.message);
+  for (const r of [facs, accts, vends, people]) if (r.error) throw new TxnQueryError(r.error.message);
 
   const value: Allowlists = {
     facilities: new Set((facs.data || []).map((r) => String(r.facility))),
     groups: new Set(KPI_GROUPS),
     accounts: new Set((accts.data || []).map((r) => String(r.account_label))),
     vendors: new Set([...(vends.data || []).map((r) => String(r.vendor)), NO_PAYEE]),
+    people: new Set((people.data || []).map((r) => String(r.person))),
   };
   allowCache = { at: now, value };
   return value;

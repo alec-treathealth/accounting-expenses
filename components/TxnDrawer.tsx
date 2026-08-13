@@ -17,6 +17,10 @@ export type DrillFilters = {
   kpi_group?: string;
   account_label?: string;
   vendor?: string;
+  /** Restrict to Ramp card charges. Cannot stand alone — see filter_required. */
+  ramp?: boolean;
+  /** Ramp cardholder. Implies `ramp` server-side. */
+  person?: string;
 };
 
 export type DrillContext = {
@@ -128,6 +132,8 @@ export default function TxnDrawer({ ctx, onClose }: { ctx: DrillContext; onClose
     if (f.kpi_group) qs.set("kpi_group", f.kpi_group);
     if (f.account_label) qs.set("account_label", f.account_label);
     if (f.vendor) qs.set("vendor", f.vendor);
+    if (f.ramp) qs.set("ramp", "1");
+    if (f.person) qs.set("person", f.person);
     if (q) qs.set("q", q);
     qs.set("limit", String(limit));
     qs.set("offset", String(offset));
@@ -187,6 +193,10 @@ export default function TxnDrawer({ ctx, onClose }: { ctx: DrillContext; onClose
     if (f.kpi_group) out.push(f.kpi_group);
     if (f.account_label) out.push(f.account_label);
     if (f.vendor) out.push(f.vendor);
+    /* A person already implies the Ramp restriction, so showing both chips
+       would read as two filters where there is one. */
+    if (f.person) out.push(f.person);
+    else if (f.ramp) out.push("Ramp card");
     return out;
   }, [ctx.filters]);
 

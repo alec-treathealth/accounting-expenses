@@ -61,6 +61,12 @@ export async function GET(req: NextRequest) {
           kpi_group: f.kpi_group,
           account_label: f.account_label,
           vendor: f.vendor,
+          /* Echoed because `ramp` can be set by IMPLICATION (a person implies
+             it, see parseTxnParams), so what the client sent and what actually
+             ran are not always the same thing. The drawer shows these as
+             chips. */
+          ramp: f.ramp,
+          person: f.person,
           /* Echo the SANITIZED term, not what was typed: the client shows this
              so a user whose punctuation was stripped can see what actually ran.
              `searched` tells the drawer that `totals` describes a SUBSET, so it

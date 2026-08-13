@@ -112,11 +112,22 @@ button.btn-sm { min-height: 26px; }
    LAYOUT GRIDS
    ========================================================================== */
 .grid { display: grid; gap: var(--space-3); }
-.kpis { grid-template-columns: repeat(4, 1fr); margin-top: var(--space-4); }
-@media (max-width: 720px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+
+/* INTRINSIC, not breakpoint-driven. These grids sit inside a content column
+   whose width now depends on the navigation rail (240px / 72px / 0), so a fixed
+   column count is wrong at some rail width by construction — .kpis was
+   repeat(4, 1fr) holding three cards, which left a dead quarter of the row.
+   auto-fit collapses empty tracks, so three cards give exactly three columns
+   when there is room and wrap when there is not, at any rail width, and a
+   fourth card added later needs no CSS change. */
+.kpis { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); margin-top: var(--space-4); }
 section { margin-top: var(--space-3); }
-.two { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
-@media (max-width: 860px) { .two { grid-template-columns: 1fr; } }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: var(--space-3); }
+
+/* Anything that can outgrow its column scrolls INSIDE its own box. The page body
+   must never scroll sideways — a horizontal scrollbar on a financial table is
+   how a reader misses the column that carries the number. */
+.table-scroll, .chart-scroll { overflow-x: auto; }
 
 /* components.css owns .card's surface, radius and padding. The dashboard wants
    the ring on every card, so add elevation here rather than repeating .card. */
@@ -145,8 +156,10 @@ section { margin-top: var(--space-3); }
    "Northern California Mental Health". Wider column, and wrap instead of
    truncate so a long name stays fully readable when space runs out.
    ========================================================================== */
+/* The label column is a variable so a bar row can live in a 340px side list and
+   in a full-width card without a second component. Panels set --bar-lab. */
 .bar-row {
-  display: grid; grid-template-columns: 200px minmax(64px, 1fr) auto;
+  display: grid; grid-template-columns: var(--bar-lab, 200px) minmax(48px, 1fr) auto;
   gap: var(--space-3); align-items: center; margin: 7px 0; font-size: var(--size-ui);
 }
 .bar-lab {
@@ -156,7 +169,7 @@ section { margin-top: var(--space-3); }
 .sw { width: 9px; height: 9px; border-radius: 2px; flex: none; display: inline-block; }
 /* keep the swatch on the label's first line when the name wraps */
 .bar-lab .sw { margin-top: 3px; }
-@media (max-width: 480px) { .bar-row { grid-template-columns: 140px minmax(40px, 1fr) auto; } }
+@media (max-width: 480px) { .bar-row { --bar-lab: 120px; } }
 
 .track {
   height: 16px; background: color-mix(in srgb, var(--color-text) 10%, transparent);
@@ -341,5 +354,232 @@ mark.dd-hit {
    .ths-skeleton (shimmer) comes from components.css.
    ========================================================================== */
 .sk-line { height: 11px; border-radius: var(--radius-sm); }
-.sk-row { display: grid; grid-template-columns: 200px minmax(64px, 1fr) 90px; gap: var(--space-3); align-items: center; margin: 7px 0; }
+.sk-row { display: grid; grid-template-columns: var(--bar-lab, 200px) minmax(48px, 1fr) 90px; gap: var(--space-3); align-items: center; margin: 7px 0; }
 .sk-kpi { height: 28px; width: 62%; margin-top: 3px; }
+
+/* ============================================================================
+   APP SHELL — M3 navigation rail + top bar
+   Three widths, one DOM. The rail's width is a custom property on .shell so the
+   grid track and the rail itself can never disagree about it.
+   ========================================================================== */
+
+.skip {
+  position: absolute; left: var(--space-3); top: -60px; z-index: 70;
+  padding: var(--space-2) var(--space-4); border-radius: var(--radius-md);
+  background: var(--color-surface-raised); color: var(--color-text);
+  box-shadow: var(--shadow-md); font-size: var(--size-ui);
+  transition: top var(--dur-1) var(--ease);
+}
+.skip:focus { top: var(--space-3); text-decoration: none; }
+
+.shell {
+  --rail-w: 240px;
+  display: grid;
+  /* minmax(0,1fr) is load-bearing: a grid track defaults to min-content, so a
+     wide table inside would push the whole page sideways instead of scrolling
+     within its own box. */
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  min-height: 100dvh;
+}
+.shell-main { min-width: 0; display: flex; flex-direction: column; }
+.shell-content {
+  flex: 1; min-width: 0; width: 100%; max-width: 1400px;
+  padding: var(--space-4) var(--space-6) 64px;
+}
+
+.rail-host { position: sticky; top: 0; height: 100dvh; z-index: 30; }
+.rail {
+  display: flex; flex-direction: column; height: 100%; width: 100%;
+  padding: var(--space-4) var(--space-3);
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-divider);
+  overflow-y: auto;
+}
+
+.rail-brand { display: flex; align-items: center; gap: 10px; padding: var(--space-2) var(--space-3) var(--space-6); }
+.rail-mark { width: 22px; height: 22px; border-radius: 6px; background: var(--color-accent); box-shadow: var(--shadow-accent); flex: none; }
+.rail-brand-text { min-width: 0; }
+.rail-brand-name { display: block; font-size: var(--size-ui); font-weight: var(--weight-semibold); color: var(--color-text); }
+.rail-brand-sub { display: block; font-size: var(--size-meta); color: var(--text-meta); }
+
+.rail-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.rail-item {
+  position: relative; display: flex; align-items: center; gap: 10px;
+  height: 44px; padding: 0 var(--space-4); border-radius: 99px;
+  color: var(--text-secondary); text-decoration: none;
+  font-size: var(--size-ui); font-weight: var(--weight-medium);
+  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+.rail-item:hover { background: var(--fill-hover); color: var(--color-text); text-decoration: none; }
+.rail-item[aria-current="page"] { background: var(--fill-selected); color: var(--color-accent); }
+
+/* The M3 active indicator. A SOLID accent fill, which components.css names as
+   one of exactly three sanctioned uses — alongside a progress fill and a chart
+   series. Everywhere else the accent stays a line and a glow. */
+.rail-indicator {
+  position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 0; border-radius: 99px; background: var(--color-accent);
+  transition: height var(--dur-2) var(--ease);
+}
+.rail-item[aria-current="page"] .rail-indicator { height: 22px; }
+
+.rail-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* WARN, not danger. The design system reserves --color-danger for errors and
+   destructive actions ("never use --color-danger for emphasis"), and an alert
+   count is emphasis on something to review, not a failure. Solid warn with the
+   page ground as the text colour clears AA on both grounds. */
+.rail-badge {
+  min-width: 20px; height: 18px; padding: 0 6px; border-radius: 99px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: var(--size-tag); font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  background: var(--color-warn); color: var(--color-bg);
+}
+
+.rail-foot { margin: 0; padding: var(--space-4) var(--space-4) 0; font-size: var(--size-meta); color: var(--text-meta); line-height: 1.5; }
+.rail-scrim { position: fixed; inset: 0; z-index: 29; background: color-mix(in srgb, var(--color-bg) 60%, transparent); }
+
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap;
+  padding: var(--space-3) var(--space-6);
+  background: color-mix(in srgb, var(--color-bg) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--color-divider);
+}
+.topbar-menu { display: none; }
+.topbar-title { flex: 1 1 220px; min-width: 0; }
+.topbar-title h1 { font-size: var(--size-h4); margin: 0; }
+.topbar-blurb { margin: 2px 0 0; font-size: var(--size-ui-sm); color: var(--text-meta); }
+.topbar-controls { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+
+/* ---- Icon-only rail ------------------------------------------------------ */
+@media (max-width: 1099px) {
+  .shell { --rail-w: 72px; }
+  .rail-brand { justify-content: center; padding-left: 0; padding-right: 0; }
+  .rail-item { justify-content: center; gap: 0; padding: 0; }
+  /* CLIPPED, not removed. The icon is aria-hidden, so deleting the text would
+     leave a link with no accessible name. */
+  .rail-label, .rail-brand-text, .rail-foot {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+  .rail-badge { position: absolute; top: 3px; right: 8px; }
+}
+
+/* ---- Off-canvas drawer --------------------------------------------------- */
+@media (max-width: 759px) {
+  .shell { --rail-w: 0px; grid-template-columns: minmax(0, 1fr); }
+  .rail-host {
+    position: fixed; left: 0; top: 0; width: 264px;
+    /* visibility, not transform alone: a rail that is merely translated
+       off-screen keeps its links in the tab order, so a keyboard user would tab
+       into a menu they cannot see. */
+    visibility: hidden; transform: translateX(-100%);
+    transition: transform var(--dur-2) var(--ease), visibility var(--dur-2);
+  }
+  .rail-host[data-open="true"] { visibility: visible; transform: none; }
+  .rail-brand { justify-content: flex-start; padding: var(--space-2) var(--space-3) var(--space-6); }
+  .rail-item { justify-content: flex-start; gap: 10px; padding: 0 var(--space-4); }
+  .rail-label, .rail-brand-text {
+    position: static; width: auto; height: auto; margin: 0; overflow: visible;
+    clip: auto; border: 0;
+  }
+  .rail-label { overflow: hidden; text-overflow: ellipsis; }
+  .rail-foot {
+    position: static; width: auto; height: auto; overflow: visible; clip: auto;
+    margin: 0; padding: var(--space-4) var(--space-4) 0;
+  }
+  .rail-badge { position: static; }
+  .topbar-menu { display: inline-flex; }
+  .topbar, .shell-content { padding-left: var(--space-4); padding-right: var(--space-4); }
+}
+
+/* ============================================================================
+   EXPENSE INTELLIGENCE
+   ========================================================================== */
+
+.split { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: var(--space-3); align-items: start; }
+@media (max-width: 1000px) { .split { grid-template-columns: minmax(0, 1fr); } }
+
+.people-list { --bar-lab: 118px; }
+.people-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.people-search { width: 100%; margin-top: var(--space-2); }
+/* The list is 90 cardholders long; capping it keeps the selected person's panel
+   on screen instead of pushed below the fold. */
+.people-scroll { max-height: 58vh; overflow-y: auto; margin-top: var(--space-2); }
+
+.person-row[data-selected="true"] .bar-lab { color: var(--color-accent); font-weight: var(--weight-medium); }
+.person-row[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+
+.person-detail { --bar-lab: 170px; }
+.person-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.person-name { font-size: var(--size-h5); margin: 0; }
+.person-meta { margin: 3px 0 0; font-size: var(--size-ui); color: var(--text-secondary); }
+.person-block { margin-top: var(--space-6); }
+.person-block h3 {
+  margin: 0 0 var(--space-2); font-size: var(--size-h6);
+  text-transform: uppercase; letter-spacing: var(--tracking-eyebrow); color: var(--text-meta);
+}
+.person-empty h2 { font-size: var(--size-h5); margin: 0 0 var(--space-3); }
+.person-empty p { font-size: var(--size-ui); color: var(--text-secondary); max-width: 62ch; }
+
+.spark { display: flex; align-items: flex-end; gap: var(--space-2); }
+.spark-col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.spark-track {
+  width: 100%; height: 72px; display: flex; align-items: flex-end;
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+  border-radius: var(--radius-sm); overflow: hidden;
+}
+.spark-fill { width: 100%; min-height: 2px; background: var(--color-accent); border-radius: var(--radius-sm); transition: height var(--dur-3) var(--ease); }
+.spark-val { font-size: var(--size-meta); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.spark-lab { font-size: var(--size-meta); color: var(--text-meta); }
+
+.stat-pair { display: flex; flex-wrap: wrap; gap: var(--space-8); margin: var(--space-6) 0 0; }
+.stat-pair dt { font-size: var(--size-label); text-transform: uppercase; letter-spacing: var(--tracking-label); color: var(--text-meta); }
+.stat-pair dd { margin: 2px 0 0; font-size: var(--size-h4); font-variant-numeric: tabular-nums; color: var(--color-text); }
+
+/* ============================================================================
+   EXPENSE ALERTS
+   ========================================================================== */
+
+.alert-filter { flex-wrap: wrap; margin-bottom: var(--space-3); }
+.seg-count { font-variant-numeric: tabular-nums; opacity: .72; }
+
+.alert-list { list-style: none; margin: 0; padding: 0; }
+.alert-list li + li { border-top: 1px solid var(--hairline); }
+.alert-row {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: var(--space-4); width: 100%; text-align: left;
+  padding: var(--space-3) var(--space-2); min-height: 0;
+  background: none; border: 0; border-radius: var(--radius-md);
+  font: inherit; color: inherit; cursor: pointer;
+}
+.alert-row:hover { background: var(--fill-hover); }
+.alert-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.alert-top { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.alert-kind { font-size: var(--size-ui-sm); color: var(--text-meta); }
+.alert-who { font-size: var(--size-ui); font-weight: var(--weight-medium); color: var(--color-text); }
+.alert-why { font-size: var(--size-ui); color: var(--text-body); }
+.alert-where { font-size: var(--size-meta); color: var(--text-meta); overflow-wrap: anywhere; }
+.alert-amt {
+  display: flex; flex-direction: column; align-items: flex-end; white-space: nowrap;
+  font-size: var(--size-ui); color: var(--color-text); font-variant-numeric: tabular-nums;
+}
+.alert-amt-sub { font-size: var(--size-meta); color: var(--text-meta); }
+
+.rules { margin-top: var(--space-3); }
+.rules summary { cursor: pointer; font-size: var(--size-ui); color: var(--text-accent); }
+.rules dl { margin: var(--space-3) 0 0; }
+.rules dt { margin-top: var(--space-3); font-size: var(--size-ui); font-weight: var(--weight-medium); color: var(--color-text); }
+.rules dd { margin: 2px 0 0; font-size: var(--size-ui-sm); color: var(--text-secondary); }
+
+/* ============================================================================
+   SHARED SMALL TYPE
+   ========================================================================== */
+
+.page-note { margin: 0 0 var(--space-3); font-size: var(--size-ui); color: var(--text-secondary); max-width: 90ch; }
+.fine { margin: var(--space-2) 0 0; font-size: var(--size-meta); color: var(--text-meta); }
+.empty-note { margin: var(--space-3) 0; font-size: var(--size-ui); color: var(--text-secondary); }
+.upload-panel { margin-top: var(--space-6); }
