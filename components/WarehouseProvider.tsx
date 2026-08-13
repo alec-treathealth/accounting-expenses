@@ -106,6 +106,10 @@ type Ctx = {
   setPinned: (alert: Alert, value: boolean) => void;
 
   openDrill: (ctx: DrillContext) => void;
+  /** Cardholder the Expense Intelligence page should preselect on arrival, and
+   *  the setter the drill-down uses to hand one over before navigating. */
+  focusPerson: string | null;
+  setFocusPerson: (person: string | null) => void;
   /** Drill with the current facility/month filters folded in. */
   scope: () => DrillFilters;
   /** The agg_group_month figure for a filter, so a drawer can reconcile to it. */
@@ -361,7 +365,19 @@ export default function WarehouseProvider({
     [pins, post],
   );
 
-  const openDrill = useCallback((ctx: DrillContext) => setDrillCtx(ctx), []);
+  const [focusPerson, setFocusPerson] = useState<string | null>(null);
+
+  /* Opening a drill also asks for the Ramp roster, because the drawer offers a
+     link from a cardholder's name into Expense Intelligence and can only do that
+     for names the warehouse knows. Requested here rather than eagerly: it is
+     146 kB that a user who never drills should not pay for. */
+  const openDrill = useCallback(
+    (ctx: DrillContext) => {
+      request(["ramp"]);
+      setDrillCtx(ctx);
+    },
+    [request],
+  );
 
   /* Stable, not an inline arrow at the call site. TxnDrawer keys its focus and
      body-scroll effect on `onClose`, so a fresh identity on every provider
@@ -402,10 +418,10 @@ export default function WarehouseProvider({
       facilities, months,
       rosterCount: inScope.length || facilities.length,
       read, pins, setRead, setPinned,
-      openDrill, scope, aggFor,
+      openDrill, focusPerson, setFocusPerson, scope, aggFor,
     }),
     [data, got, loadError, request, reload, facility, month, facilities, months, inScope.length,
-     read, pins, setRead, setPinned, openDrill, scope, aggFor],
+     read, pins, setRead, setPinned, openDrill, focusPerson, scope, aggFor],
   );
 
   return (

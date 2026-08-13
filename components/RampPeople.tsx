@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { usd, pct } from "@/lib/format";
 import { filterRamp, rankPeople, share, total, UNATTRIBUTED } from "@/lib/ramp";
 import { useDatasets, useWarehouse } from "@/components/WarehouseProvider";
@@ -25,9 +25,19 @@ const MAX_COMPARE = 4;
 
 export default function RampPeople() {
   useDatasets(["ramp", "rampVendor"]);
-  const { data, got, facility, month } = useWarehouse();
+  const { data, got, facility, month, focusPerson, setFocusPerson } = useWarehouse();
   const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState("");
+
+  /* Arriving from a drill-down: the drawer handed over a cardholder before
+     navigating here. Consumed once and cleared, so going Back or switching
+     sections does not silently re-select them. */
+  useEffect(() => {
+    if (!focusPerson) return;
+    setSelected([focusPerson]);
+    setQuery("");
+    setFocusPerson(null);
+  }, [focusPerson, setFocusPerson]);
 
   // Everything below is scoped by the shell's global facility/month filters.
   const scoped = useMemo(

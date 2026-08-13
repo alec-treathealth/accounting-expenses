@@ -9,6 +9,7 @@ import { useWarehouse } from "@/components/WarehouseProvider";
 import Icon from "@/components/Icon";
 import { usePrefs } from "@/components/usePrefs";
 import UpdateDataDialog from "@/components/UpdateDataDialog";
+import Select from "@/components/Select";
 
 /* The one place the facility and month filters live.
  *
@@ -61,36 +62,32 @@ export default function TopBar({
       </div>
 
       <div className="topbar-controls">
-        <label className="sr-only" htmlFor="ths-facility">Facility</label>
-        <select
+        <Select
           id="ths-facility"
-          className="input"
+          label="Facility"
           value={facility}
-          onChange={(e) => setFacility(e.target.value)}
           disabled={!got.gm && !got.dim}
-        >
-          <option value="All">All facilities</option>
-          {facilities.map((f) => (
-            <option key={f}>{f}</option>
-          ))}
-        </select>
+          onChange={setFacility}
+          options={[
+            { value: "All", label: "All facilities" },
+            ...facilities.map((f) => ({ value: f, label: f })),
+          ]}
+        />
 
-        <label className="sr-only" htmlFor="ths-month">Month</label>
-        <select
+        <Select
           id="ths-month"
-          className="input"
+          label="Month"
           value={month}
-          onChange={(e) => setMonth(e.target.value)}
           disabled={!got.gm}
-        >
-          <option value="All">All months</option>
-          {months.map((m) => (
-            <option key={m} value={m}>
-              {monthName(m)} {m.slice(0, 4)}
-              {m === PARTIAL_MONTH ? " (partial)" : ""}
-            </option>
-          ))}
-        </select>
+          onChange={setMonth}
+          options={[
+            { value: "All", label: "All months" },
+            ...months.map((m) => ({
+              value: m,
+              label: `${monthName(m)} ${m.slice(0, 4)}${m === PARTIAL_MONTH ? " (partial)" : ""}`,
+            })),
+          ]}
+        />
 
         {/* The one filled button in the app, and the design system allows
             exactly one per screen. It is the action that makes every other

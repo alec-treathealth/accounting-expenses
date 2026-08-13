@@ -78,37 +78,41 @@ export default function AlertsFeed() {
 
   return (
     <>
-      <div className="alert-head">
-        <p className="page-note" style={{ margin: 0 }}>
-          {got.alerts ? (
-            <>
-              <b>{unreadCount}</b> of {inScope.length} charge{inScope.length === 1 ? "" : "s"} still to review in this
-              view{exposure > 0 && <> · {usd(exposure)} beyond the expected amount</>}. These are prompts to look, not
-              findings of error.
-            </>
-          ) : (
-            "Checking Ramp charges against each cardholder’s own history…"
-          )}
-        </p>
-        <button
-          className="btn btn-secondary btn-sm"
-          disabled={!got.alerts || unreadCount === 0}
-          onClick={() => setRead(inScope.filter((a) => !read.has(a.key)).map((a) => a.key), true)}
-        >
-          Mark all as read{unreadCount > 0 ? ` (${unreadCount})` : ""}
-        </button>
-      </div>
+      <p className="page-note">
+        {got.alerts ? (
+          <>
+            <b>{unreadCount}</b> of {inScope.length} charge{inScope.length === 1 ? "" : "s"} still to review in this
+            view{exposure > 0 && <> · {usd(exposure)} beyond the expected amount</>}. These are prompts to look, not
+            findings of error.
+          </>
+        ) : (
+          "Checking Ramp charges against each cardholder’s own history…"
+        )}
+      </p>
 
       <div className="alert-cols">
         <div className="alert-main-col">
-          <div className="seg alert-filter" role="radiogroup" aria-label="Alert type">
-            {(["All", ...ALERT_KINDS] as const).map((k) => (
-              <label key={k} className="seg-opt">
-                <input type="radio" name="ths-alert-kind" checked={kind === k} onChange={() => setKind(k)} />
-                {k === "All" ? "All" : ALERT_LABEL[k]}
-                <span className="seg-count">{counts[k] ?? 0}</span>
-              </label>
-            ))}
+          {/* One left-aligned control row. Mark-all-read sits with the type
+              filters rather than opposite them: it acts on the same list they
+              scope, and a control stranded on the far right reads as belonging
+              to the page rather than to the feed. */}
+          <div className="alert-controls">
+            <div className="seg alert-filter" role="radiogroup" aria-label="Alert type">
+              {(["All", ...ALERT_KINDS] as const).map((k) => (
+                <label key={k} className="seg-opt">
+                  <input type="radio" name="ths-alert-kind" checked={kind === k} onChange={() => setKind(k)} />
+                  {k === "All" ? "All" : ALERT_LABEL[k]}
+                  <span className="seg-count">{counts[k] ?? 0}</span>
+                </label>
+              ))}
+            </div>
+            <button
+              className="btn btn-secondary btn-sm"
+              disabled={!got.alerts || unreadCount === 0}
+              onClick={() => setRead(inScope.filter((a) => !read.has(a.key)).map((a) => a.key), true)}
+            >
+              Mark all as read{unreadCount > 0 ? ` (${unreadCount})` : ""}
+            </button>
           </div>
 
           <section className="card">

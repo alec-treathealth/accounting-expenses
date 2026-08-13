@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { activeItem } from "@/lib/nav";
 import { filterAlerts } from "@/lib/alerts";
 import WarehouseProvider, { useWarehouse } from "@/components/WarehouseProvider";
 import SideNav from "@/components/SideNav";
 import TopBar from "@/components/TopBar";
-import TxnDrawer from "@/components/TxnDrawer";
+import TxnDrawer, { type DrillContext } from "@/components/TxnDrawer";
+import { usePrefs } from "@/components/usePrefs";
 
 /* The application frame: navigation rail, top bar, and the single mounted
  * transaction drawer that any route can open through the warehouse context.
@@ -29,6 +30,7 @@ function Frame({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { data, got, facility, month, loadError, read } = useWarehouse();
   const [menuOpen, setMenuOpen] = useState(false);
+  const { rail, toggleRail } = usePrefs();
 
   const railRef = useRef<HTMLDivElement>(null);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
@@ -117,11 +119,22 @@ function Frame({ children }: { children: React.ReactNode }) {
   const behindDrawer = menuOpen || undefined;
 
   return (
-    <div className="shell">
+    <div className="shell" data-rail={rail}>
       <a className="skip" href="#main">Skip to content</a>
 
       <div id="ths-rail" className="rail-host" data-open={menuOpen ? "true" : "false"} ref={railRef}>
-        <SideNav alertCount={alertCount} open={menuOpen} onClose={closeMenu} />
+        <SideNav
+          alertCount={alertCount}
+          /* Below 760px the rail is a drawer and always shows its labels, so the
+             collapsed/expanded preference does not apply there. */
+          expanded={rail === "expanded" || menuOpen}
+          /* One control, two meanings by width. In the drawer it dismisses the
+             drawer; on the rail it flips the persisted preference. Wiring it
+             straight to toggleRail would make the drawer's × silently change a
+             desktop setting and leave the drawer open. */
+          onToggle={() => (menuOpen ? setMenuOpen(false) : toggleRail())}
+          onClose={closeMenu}
+        />
       </div>
       {/* Tap-away for the mobile drawer. Hidden from assistive tech: Escape and
           the toggle button are the keyboard paths, and an unlabelled div in the
@@ -153,11 +166,35 @@ function Frame({ children }: { children: React.ReactNode }) {
   );
 }
 
+/* The drawer needs two things the provider owns — the cardholder roster and a
+ * place to hand a selected person — so it goes through a component rather than
+ * being constructed in the render prop. The prop's return value IS rendered
+ * inside the provider, so this can call useWarehouse(); a bare TxnDrawer with
+ * props computed in AppShell's own body could not.
+ */
+function Drill({ ctx, onClose }: { ctx: DrillContext; onClose: () => void }) {
+  const { data, setFocusPerson } = useWarehouse();
+  const router = useRouter();
+
+  const cardholders = useMemo(() => new Set(data.ramp.map((r) => r.person)), [data.ramp]);
+
+  return (
+    <TxnDrawer
+      ctx={ctx}
+      onClose={onClose}
+      cardholders={cardholders}
+      onPerson={(person) => {
+        setFocusPerson(person);
+        onClose();
+        router.push("/intelligence");
+      }}
+    />
+  );
+}
+
 export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
-    <WarehouseProvider
-      drill={(ctx, close) => (ctx ? <TxnDrawer ctx={ctx} onClose={close} /> : null)}
-    >
+    <WarehouseProvider drill={(ctx, close) => (ctx ? <Drill ctx={ctx} onClose={close} /> : null)}>
       <Frame>{children}</Frame>
     </WarehouseProvider>
   );

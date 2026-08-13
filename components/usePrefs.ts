@@ -29,6 +29,18 @@ const DEFAULT_GROUND: Ground = "dark";
 
 const KEY_GROUND = "ths-ground";
 
+const RAILS = ["collapsed", "expanded"] as const;
+export type Rail = (typeof RAILS)[number];
+
+/* Collapsed is the default and it is a deliberate one: the workspace has four
+   sections, so a 240px column of mostly whitespace costs content width on every
+   screen to label something a user learns in a day. Expanding is a choice, and
+   it persists — someone who wants the labels should not have to re-open the rail
+   on every visit. */
+const DEFAULT_RAIL: Rail = "collapsed";
+
+const KEY_RAIL = "ths-rail";
+
 function read<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   if (typeof window === "undefined") return fallback;
   try {
@@ -51,6 +63,7 @@ function write(key: string, value: string) {
 
 export function usePrefs() {
   const [ground, setGroundState] = useState<Ground>(DEFAULT_GROUND);
+  const [rail, setRailState] = useState<Rail>(DEFAULT_RAIL);
 
   // Restore before paint. Deliberately useLayoutEffect, not useEffect: with
   // useEffect the first painted frame uses the SSR default and the saved
@@ -59,6 +72,7 @@ export function usePrefs() {
     const g = read(KEY_GROUND, GROUNDS, DEFAULT_GROUND);
     setGroundState(g);
     document.documentElement.setAttribute("data-ground", g);
+    setRailState(read(KEY_RAIL, RAILS, DEFAULT_RAIL));
   }, []);
 
   // Keep the meta theme-color in step with the ground so mobile browser chrome
@@ -81,5 +95,18 @@ export function usePrefs() {
     [ground, setGround],
   );
 
-  return { ground, setGround, toggleGround };
+  /* The rail does NOT set an attribute on <html>. Unlike the ground, it is not a
+     token swap — it changes a grid track that only the shell owns, so the shell
+     holds it as state and no other component has to know it exists. */
+  const setRail = useCallback((r: Rail) => {
+    setRailState(r);
+    write(KEY_RAIL, r);
+  }, []);
+
+  const toggleRail = useCallback(
+    () => setRail(rail === "collapsed" ? "expanded" : "collapsed"),
+    [rail, setRail],
+  );
+
+  return { ground, setGround, toggleGround, rail, setRail, toggleRail };
 }

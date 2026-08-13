@@ -27,8 +27,14 @@ export const SUM_SCAN_CAP = 200_000;
 
 export const NO_PAYEE = "(no payee)";
 
+/* is_ramp and ramp_cardholder are the PostgREST computed columns from migration
+   0010, selected explicitly here so each returned row carries the cardholder the
+   DATABASE derived. The drawer links a description through to Expense
+   Intelligence, and doing that from a client-side re-implementation of
+   ramp_person() would put a second definition of "who" in the codebase — the one
+   thing this feature has avoided since it was built. */
 export const TXN_COLUMNS =
-  "row_key,occurrence,facility,txn_date,posted_period,txn_type,num,name,description,split,account_num,account_label,kpi_group,kind,amount";
+  "row_key,occurrence,facility,txn_date,posted_period,txn_type,num,name,description,split,account_num,account_label,kpi_group,kind,amount,is_ramp,ramp_cardholder";
 
 export const SORT_KEYS = ["txn_date", "amount", "name", "account_label"] as const;
 export type SortKey = (typeof SORT_KEYS)[number];
@@ -258,6 +264,9 @@ export type TxnRow = {
   kpi_group: string;
   kind: string | null;
   amount: number;
+  /** Computed columns — see TXN_COLUMNS. */
+  is_ramp?: boolean;
+  ramp_cardholder?: string | null;
 };
 
 export type TxnPage = {

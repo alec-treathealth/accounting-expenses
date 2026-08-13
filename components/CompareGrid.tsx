@@ -13,6 +13,7 @@ import {
 } from "@/lib/pivot";
 import { MONTH_LABEL, monthName, usd, usdShort } from "@/lib/format";
 import { type DrillFilters } from "@/components/TxnDrawer";
+import Select from "@/components/Select";
 
 export type CompareGridProps = {
   rows: AggRow[];
@@ -119,35 +120,41 @@ export default function CompareGrid({ rows, onCell }: CompareGridProps) {
           marginBottom: "var(--space-4)",
         }}
       >
-        <label className="field" style={{ gap: 4 }}>
+        <div className="field" style={{ gap: 4 }}>
           <span>Rows</span>
-          <select className="input" value={rowDim} onChange={(e) => pickRow(e.target.value as Dim)}>
-            {DIMS.map((d) => (
-              <option key={d} value={d}>{DIM_LABEL[d]}</option>
-            ))}
-          </select>
-        </label>
+          <Select
+            label="Rows"
+            value={rowDim}
+            onChange={(v) => pickRow(v as Dim)}
+            options={DIMS.map((d) => ({ value: d, label: DIM_LABEL[d] }))}
+          />
+        </div>
 
-        <label className="field" style={{ gap: 4 }}>
+        <div className="field" style={{ gap: 4 }}>
           <span>Columns</span>
-          <select className="input" value={colDim} onChange={(e) => pickCol(e.target.value as Dim)}>
-            {DIMS.map((d) => (
-              <option key={d} value={d}>{DIM_LABEL[d]}</option>
-            ))}
-          </select>
-        </label>
+          <Select
+            label="Columns"
+            value={colDim}
+            onChange={(v) => pickCol(v as Dim)}
+            options={DIMS.map((d) => ({ value: d, label: DIM_LABEL[d] }))}
+          />
+        </div>
 
-        <label className="field" style={{ gap: 4 }}>
+        <div className="field" style={{ gap: 4 }}>
           <span>{DIM_LABEL[third]}</span>
-          <select className="input" value={thirdVal} onChange={(e) => setThirdVal(e.target.value)}>
-            <option value="">All</option>
-            {thirdOptions.map((v) => (
-              <option key={v} value={v}>
-                {third === "month" ? `${monthName(v)}${v === PARTIAL_MONTH ? " (partial)" : ""}` : v}
-              </option>
-            ))}
-          </select>
-        </label>
+          <Select
+            label={DIM_LABEL[third]}
+            value={thirdVal}
+            onChange={setThirdVal}
+            options={[
+              { value: "", label: "All" },
+              ...thirdOptions.map((v) => ({
+                value: v,
+                label: third === "month" ? `${monthName(v)}${v === PARTIAL_MONTH ? " (partial)" : ""}` : v,
+              })),
+            ]}
+          />
+        </div>
 
         <div className="seg" role="radiogroup" aria-label="Value display" style={{ marginLeft: "auto" }}>
           {([false, true] as const).map((s) => (

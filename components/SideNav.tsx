@@ -4,43 +4,64 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NAV } from "@/lib/nav";
 import Icon from "@/components/Icon";
+import Logo, { LogoMark } from "@/components/Logo";
 
 /* M3 navigation rail, painted entirely in Treat Design System tokens.
+ *
+ * COLLAPSED IS THE DEFAULT. Four sections do not earn a 240px column of mostly
+ * whitespace on every screen; the labels are one day's learning and the content
+ * width is permanent. Expanding is a choice and it persists.
+ *
+ * Collapsed, every item shows a hover/focus label chip beside it — which is not
+ * decoration but the thing that makes an icon-only rail usable, and the reason
+ * the rail does not need to be expanded to be learnable.
  *
  * The active item takes a SOLID accent indicator. That is not a departure from
  * the system's "the accent is a line and a glow, never a flood" rule — it is one
  * of the exactly three exceptions components.css names, alongside a progress
  * fill and a chart series.
- *
- * Three widths, one DOM:
- *   >= 1100px  240px rail, icon + label + badge
- *   >= 760px    72px rail, icon only — the label is CLIPPED, not removed, so the
- *               link keeps its accessible name (the icon is aria-hidden, so
- *               removing the text would leave a nameless link)
- *   <  760px   off-canvas drawer behind the top bar's menu button
  */
 
 export default function SideNav({
   alertCount,
-  open,
+  expanded,
+  onToggle,
   onClose,
 }: {
   /** Alerts inside the current facility/month filter, or null while loading. */
   alertCount: number | null;
-  /** Mobile drawer state. Ignored at >= 760px, where the rail is always shown. */
-  open: boolean;
+  /** Desktop rail width. Ignored below 760px, where the rail is a drawer. */
+  expanded: boolean;
+  onToggle: () => void;
+  /** Closes the mobile drawer after a navigation. */
   onClose: () => void;
 }) {
   const pathname = usePathname();
 
   return (
-    <nav className="rail" data-open={open ? "true" : "false"} aria-label="Sections">
+    <nav className="rail" aria-label="Sections">
       <div className="rail-brand">
-        <span className="rail-mark" aria-hidden="true" />
-        <span className="rail-brand-text">
-          <span className="rail-brand-name">Treat Health</span>
-          <span className="rail-brand-sub">Expense workspace</span>
-        </span>
+        {/* The mark IS the expand control. Collapsed, it is the only thing on
+            screen, so giving it the job keeps the promise that nothing else is
+            visible — and a logo that reveals the menu is a pattern people
+            already know. Hidden from the drawer below 760px, where the top
+            bar's own button owns the same job. */}
+        <button
+          type="button"
+          className="rail-logo"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          aria-label={expanded ? "Collapse the menu" : "Expand the menu"}
+        >
+          {expanded ? <Logo /> : <LogoMark />}
+          {!expanded && <span className="rail-tip">Expand menu</span>}
+        </button>
+
+        {expanded && (
+          <button type="button" className="rail-close" onClick={onToggle} aria-label="Collapse the menu">
+            <Icon name="close" size={16} />
+          </button>
+        )}
       </div>
 
       <ul className="rail-list">
@@ -62,17 +83,24 @@ export default function SideNav({
                 className="rail-item"
                 aria-current={active ? "page" : undefined}
                 aria-label={label}
-                title={item.blurb}
                 onClick={onClose}
               >
                 <span className="rail-indicator" aria-hidden="true" />
-                <Icon name={item.icon} />
+                <span className="rail-icon">
+                  <Icon name={item.icon} />
+                </span>
                 <span className="rail-label">{item.label}</span>
                 {badge !== null && badge > 0 && (
                   <span className="rail-badge" aria-hidden="true">
                     {badge > 99 ? "99+" : badge}
                   </span>
                 )}
+                {/* The hover/focus label. aria-hidden because the link already
+                    carries the full name — announcing it twice is noise. */}
+                <span className="rail-tip" aria-hidden="true">
+                  {item.label}
+                  {badge !== null && badge > 0 && <span className="rail-tip-badge">{badge}</span>}
+                </span>
               </Link>
             </li>
           );

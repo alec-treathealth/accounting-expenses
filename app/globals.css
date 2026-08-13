@@ -383,8 +383,11 @@ mark.dd-hit {
 }
 .skip:focus { top: var(--space-3); text-decoration: none; }
 
+/* COLLAPSED IS THE DEFAULT WIDTH, at every breakpoint. Four sections do not
+   earn a 240px column of mostly whitespace on every screen; expanding is a
+   choice the user makes and it persists in localStorage. */
 .shell {
-  --rail-w: 240px;
+  --rail-w: 72px;
   display: grid;
   /* minmax(0,1fr) is load-bearing: a grid track defaults to min-content, so a
      wide table inside would push the whole page sideways instead of scrolling
@@ -398,20 +401,43 @@ mark.dd-hit {
   padding: var(--space-4) var(--space-6) 64px;
 }
 
+.shell[data-rail="expanded"] { --rail-w: 248px; }
+
 .rail-host { position: sticky; top: 0; height: 100dvh; z-index: 30; }
 .rail {
   display: flex; flex-direction: column; height: 100%; width: 100%;
   padding: var(--space-4) var(--space-3);
   background: var(--color-surface);
   border-right: 1px solid var(--color-divider);
-  overflow-y: auto;
+  /* NOT overflow-y:auto. Setting overflow on one axis computes the other to
+     `auto` too, which would clip the hover label chips that make the collapsed
+     rail readable. Four items plus a mark and a footnote is ~300px, so there is
+     nothing to scroll. The drawer below 760px restores scrolling, where the
+     chips are off anyway. */
+  overflow: visible;
 }
 
-.rail-brand { display: flex; align-items: center; gap: 10px; padding: var(--space-2) var(--space-3) var(--space-6); }
-.rail-mark { width: 22px; height: 22px; border-radius: 6px; background: var(--color-accent); box-shadow: var(--shadow-accent); flex: none; }
-.rail-brand-text { min-width: 0; }
-.rail-brand-name { display: block; font-size: var(--size-ui); font-weight: var(--weight-semibold); color: var(--color-text); }
-.rail-brand-sub { display: block; font-size: var(--size-meta); color: var(--text-meta); }
+.rail-brand {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  padding: var(--space-1) var(--space-2) var(--space-6);
+}
+/* The mark is the expand control, so it is a button — reset to look like the
+   logo it contains and nothing else. */
+.rail-logo {
+  position: relative; display: inline-flex; align-items: center;
+  background: none; border: 0; padding: var(--space-2); min-height: 0;
+  border-radius: var(--radius-md); color: var(--color-text); cursor: pointer;
+  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+.rail-logo:hover { background: var(--fill-accent-hover); color: var(--color-accent); }
+.rail-close { flex: none; }
+
+.logo { display: inline-flex; align-items: center; gap: 9px; min-width: 0; }
+.logo-word {
+  font-family: var(--font-heading); font-size: var(--size-h5);
+  font-weight: var(--weight-medium); letter-spacing: var(--tracking-heading);
+  color: var(--color-text); white-space: nowrap;
+}
 
 .rail-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; flex: 1; }
 .rail-item {
@@ -421,20 +447,58 @@ mark.dd-hit {
   font-size: var(--size-ui); font-weight: var(--weight-medium);
   transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
 }
-.rail-item:hover { background: var(--fill-hover); color: var(--color-text); text-decoration: none; }
-.rail-item[aria-current="page"] { background: var(--fill-selected); color: var(--color-accent); }
+/* Hover is ACCENT-TINTED, not a neutral grey wash: on a rail that is usually
+   icon-only, the hover state is most of the feedback a user gets, so it carries
+   the brand rather than merely acknowledging the pointer. */
+.rail-item:hover { background: var(--fill-accent-hover); color: var(--color-accent); text-decoration: none; }
+.rail-icon { display: inline-flex; transition: transform var(--dur-2) var(--ease); }
+.rail-item:hover .rail-icon { transform: scale(1.12); }
 
 /* The M3 active indicator. A SOLID accent fill, which components.css names as
    one of exactly three sanctioned uses — alongside a progress fill and a chart
-   series. Everywhere else the accent stays a line and a glow. */
+   series. Everywhere else the accent stays a line and a glow.
+   Hover grows a SHORT stub; the current page keeps the full bar. The two rules
+   have equal specificity, so the aria-current one must come last. */
 .rail-indicator {
   position: absolute; left: 0; top: 50%; transform: translateY(-50%);
   width: 3px; height: 0; border-radius: 99px; background: var(--color-accent);
   transition: height var(--dur-2) var(--ease);
 }
+.rail-item:hover .rail-indicator { height: 11px; }
+.rail-item[aria-current="page"] { background: var(--fill-selected); color: var(--color-accent); }
 .rail-item[aria-current="page"] .rail-indicator { height: 22px; }
 
 .rail-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The hover/focus label chip. This is what makes an icon-only rail learnable —
+   without it the collapsed state is a row of glyphs and a guess. Rendered only
+   when collapsed; the expanded rail has real labels. */
+.rail-tip {
+  position: absolute; left: calc(100% + 10px); top: 50%; z-index: 40;
+  display: none; align-items: center; gap: 6px;
+  padding: 5px 10px; border-radius: var(--radius-md);
+  background: var(--color-surface-raised); color: var(--color-text);
+  box-shadow: var(--shadow-md);
+  font-size: var(--size-ui-sm); font-weight: var(--weight-medium);
+  white-space: nowrap; pointer-events: none;
+  opacity: 0; visibility: hidden;
+  transform: translateY(-50%) translateX(-6px);
+  transition: opacity var(--dur-1) var(--ease), transform var(--dur-1) var(--ease), visibility var(--dur-1);
+}
+.rail-tip-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 16px; padding: 0 5px; border-radius: 99px;
+  font-size: var(--size-tag); font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  background: var(--color-warn); color: var(--color-bg);
+}
+.shell[data-rail="collapsed"] .rail-tip { display: inline-flex; }
+.shell[data-rail="collapsed"] .rail-item:hover .rail-tip,
+.shell[data-rail="collapsed"] .rail-item:focus-visible .rail-tip,
+.shell[data-rail="collapsed"] .rail-logo:hover .rail-tip,
+.shell[data-rail="collapsed"] .rail-logo:focus-visible .rail-tip {
+  opacity: 1; visibility: visible; transform: translateY(-50%) translateX(0);
+}
 
 /* WARN, not danger. The design system reserves --color-danger for errors and
    destructive actions ("never use --color-danger for emphasis"), and an alert
@@ -472,23 +536,26 @@ mark.dd-hit {
 .topbar-blurb { margin: 2px 0 0; font-size: var(--size-ui-sm); color: var(--text-meta); }
 .topbar-controls { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 
-/* ---- Icon-only rail ------------------------------------------------------ */
-@media (max-width: 1099px) {
-  .shell { --rail-w: 72px; }
-  .rail-brand { justify-content: center; padding-left: 0; padding-right: 0; }
-  .rail-item { justify-content: center; gap: 0; padding: 0; }
-  /* CLIPPED, not removed. The icon is aria-hidden, so deleting the text would
-     leave a link with no accessible name. */
-  .rail-label, .rail-brand-text, .rail-foot {
-    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
-  }
-  .rail-badge { position: absolute; top: 3px; right: 8px; }
+/* ---- Collapsed presentation ----------------------------------------------
+   Driven by the persisted preference, not by a breakpoint. Selectors are
+   [data-rail=...] so the mobile block below can override them with EQUAL
+   specificity and later source order — a bare `.shell .rail-label` would be one
+   class weaker and would silently lose.
+   -------------------------------------------------------------------------- */
+.shell[data-rail="collapsed"] .rail-brand { justify-content: center; padding-left: 0; padding-right: 0; }
+.shell[data-rail="collapsed"] .rail-item { justify-content: center; gap: 0; padding: 0; }
+/* CLIPPED, not removed. The icon is aria-hidden, so deleting the text would
+   leave a link with no accessible name. */
+.shell[data-rail="collapsed"] .rail-label,
+.shell[data-rail="collapsed"] .rail-foot {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
+.shell[data-rail="collapsed"] .rail-badge { position: absolute; top: 3px; right: 8px; }
 
 /* ---- Off-canvas drawer --------------------------------------------------- */
 @media (max-width: 759px) {
-  .shell { --rail-w: 0px; grid-template-columns: minmax(0, 1fr); }
+  .shell[data-rail] { --rail-w: 0px; grid-template-columns: minmax(0, 1fr); }
   .rail-host {
     position: fixed; left: 0; top: 0; width: 264px;
     /* visibility, not transform alone: a rail that is merely translated
@@ -498,18 +565,21 @@ mark.dd-hit {
     transition: transform var(--dur-2) var(--ease), visibility var(--dur-2);
   }
   .rail-host[data-open="true"] { visibility: visible; transform: none; }
-  .rail-brand { justify-content: flex-start; padding: var(--space-2) var(--space-3) var(--space-6); }
-  .rail-item { justify-content: flex-start; gap: 10px; padding: 0 var(--space-4); }
-  .rail-label, .rail-brand-text {
-    position: static; width: auto; height: auto; margin: 0; overflow: visible;
-    clip: auto; border: 0;
+  .rail { overflow-y: auto; }
+  /* The drawer always shows labels — the collapse preference belongs to the
+     desktop rail, and a 264px drawer of unlabelled icons would be pointless. */
+  .shell[data-rail] .rail-brand { justify-content: space-between; padding: var(--space-1) var(--space-2) var(--space-6); }
+  .shell[data-rail] .rail-item { justify-content: flex-start; gap: 10px; padding: 0 var(--space-4); }
+  .shell[data-rail] .rail-label {
+    position: static; width: auto; height: auto; margin: 0; clip: auto; border: 0;
+    overflow: hidden; text-overflow: ellipsis;
   }
-  .rail-label { overflow: hidden; text-overflow: ellipsis; }
-  .rail-foot {
+  .shell[data-rail] .rail-foot {
     position: static; width: auto; height: auto; overflow: visible; clip: auto;
     margin: 0; padding: var(--space-4) var(--space-4) 0;
   }
-  .rail-badge { position: static; }
+  .shell[data-rail] .rail-badge { position: static; top: auto; right: auto; }
+  .shell[data-rail] .rail-tip { display: none; }
   .topbar-menu { display: inline-flex; }
   .topbar, .shell-content { padding-left: var(--space-4); padding-right: var(--space-4); }
 }
@@ -562,9 +632,9 @@ mark.dd-hit {
    EXPENSE ALERTS
    ========================================================================== */
 
-.alert-head {
-  display: flex; align-items: flex-start; justify-content: space-between;
-  gap: var(--space-4); flex-wrap: wrap; margin-bottom: var(--space-3);
+.alert-controls {
+  display: flex; align-items: center; gap: var(--space-3);
+  flex-wrap: wrap; margin-bottom: var(--space-3);
 }
 .alert-cols {
   display: grid; align-items: start; gap: var(--space-3);
@@ -573,7 +643,7 @@ mark.dd-hit {
 @media (max-width: 1100px) { .alert-cols { grid-template-columns: minmax(0, 1fr); } }
 .alert-main-col { min-width: 0; }
 
-.alert-filter { flex-wrap: wrap; margin-bottom: var(--space-3); }
+.alert-filter { flex-wrap: wrap; }
 .seg-count { font-variant-numeric: tabular-nums; opacity: .72; }
 
 .alert-list { list-style: none; margin: 0; padding: 0; }
@@ -659,6 +729,52 @@ mark.dd-hit {
 /* ============================================================================
    SHARED SMALL TYPE
    ========================================================================== */
+
+/* ============================================================================
+   SELECT — a listbox in the design system, not the operating system's
+   A native <select> paints its popup with platform chrome, which is the one
+   control on the page that cannot be tokenised. On a dense financial screen it
+   is the thing that looks bolted on, so this replaces it.
+   ========================================================================== */
+
+.sel { position: relative; display: inline-flex; }
+.sel-trigger {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 8px;
+  height: 32px; min-height: 32px; padding: 0 10px; min-width: 0;
+  font-family: var(--font-body); font-size: var(--size-ui); font-weight: var(--weight-medium);
+  color: var(--color-text); background: var(--color-surface);
+  border: 1px solid var(--color-divider); border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
+}
+.sel-trigger:hover { border-color: color-mix(in srgb, var(--color-text) 26%, transparent); background: var(--color-surface); }
+.sel-trigger[aria-expanded="true"] { border-color: var(--color-accent); }
+.sel-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel-chevron { color: var(--text-meta); transition: transform var(--dur-1) var(--ease); }
+.sel-trigger[aria-expanded="true"] .sel-chevron { transform: rotate(180deg); color: var(--color-accent); }
+
+.sel-list {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 50;
+  min-width: 100%; max-width: min(320px, 80vw); max-height: 320px; overflow-y: auto;
+  margin: 0; padding: var(--space-1); list-style: none;
+  background: var(--color-surface-raised); border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+.sel-opt {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  padding: 7px 9px; border-radius: calc(var(--radius-md) - 3px);
+  font-size: var(--size-ui); color: var(--text-body); cursor: pointer;
+}
+.sel-opt-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The drill-down's pager sits on the bottom edge of the drawer, so its list has
+   to open upward or it would render off the bottom of the viewport. */
+.dd-foot .sel-list { top: auto; bottom: calc(100% + 4px); }
+/* The highlight follows the keyboard AND the pointer, so there is exactly one
+   at a time and it means the same thing either way. */
+.sel-opt[data-active="true"] { background: var(--fill-hover); color: var(--color-text); }
+.sel-opt[aria-selected="true"] { color: var(--color-accent); }
+.sel-opt[aria-selected="true"][data-active="true"] { background: var(--fill-selected); }
 
 /* ============================================================================
    UPDATE DATA — the one filled button, and its dialog
