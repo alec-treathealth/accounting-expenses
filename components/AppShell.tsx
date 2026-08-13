@@ -27,7 +27,7 @@ const FOCUSABLE = 'a[href], button:not([disabled]), select:not([disabled]), [tab
 
 function Frame({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { data, got, facility, month, loadError } = useWarehouse();
+  const { data, got, facility, month, loadError, read } = useWarehouse();
   const [menuOpen, setMenuOpen] = useState(false);
 
   const railRef = useRef<HTMLDivElement>(null);
@@ -98,12 +98,16 @@ function Frame({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener("keydown", onKey);
   }, [menuOpen]);
 
-  /* The badge counts alerts INSIDE the current filters. null while loading, so
-     the rail shows nothing rather than a confident "0" that would read as
-     "nothing needs review". */
+  /* The badge counts UNREAD alerts inside the current filters — read state is
+     what "mark all as read" clears, and a badge that ignored it would make that
+     button look broken. null while loading, so the rail shows nothing rather
+     than a confident "0" that would read as "nothing needs review". */
   const alertCount = useMemo(
-    () => (got.alerts ? filterAlerts(data.alerts, { facility, month }).length : null),
-    [got.alerts, data.alerts, facility, month],
+    () =>
+      got.alerts
+        ? filterAlerts(data.alerts, { facility, month }).filter((a) => !read.has(a.key)).length
+        : null,
+    [got.alerts, data.alerts, facility, month, read],
   );
 
   /* While the drawer is open, the rest of the page is behind a scrim and must

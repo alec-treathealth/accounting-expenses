@@ -19,6 +19,10 @@ export const SEVERITIES = ["high", "medium"] as const;
 export type AlertSeverity = (typeof SEVERITIES)[number];
 
 export type Alert = {
+  /** Stable digest of the finding, from public.ramp_alerts(). Read state and
+   *  the investigation list hang off this, so it MUST be unique across the feed
+   *  — verify/alerts.mts asserts that. */
+  key: string;
   kind: AlertKind;
   severity: AlertSeverity;
   facility: string;
@@ -75,9 +79,11 @@ export function alertReason(a: Alert): string {
   switch (a.kind) {
     case "large_charge": {
       const x = a.baseline && a.baseline > 0 ? Math.round(a.amount / a.baseline) : null;
+      // n > 1 means identical charges on the same day, folded into one finding.
+      const what = a.n > 1 ? `${a.n} charges of ${usd(a.amount)} each` : usd(a.amount);
       return x
-        ? `${usd(a.amount)} — about ${x}x this cardholder's typical ${usd(a.baseline!)} charge.`
-        : `${usd(a.amount)} on a single charge.`;
+        ? `${what} — about ${x}x this cardholder's typical ${usd(a.baseline!)} charge.`
+        : `${what} on this cardholder's Ramp card.`;
     }
     case "monthly_spike":
       return `${usd(a.amount)} this month against a ${usd(a.baseline ?? 0)} average of every prior month — ${usd(a.excess)} above it.`;
@@ -85,6 +91,25 @@ export function alertReason(a: Alert): string {
       return `${a.n} identical ${usd(a.amount)} charges to ${a.vendor ?? "the same merchant"} on one day — ${usd(a.excess)} of it may be a double charge.`;
   }
 }
+
+/** A charge someone flagged for the team to look into. */
+export type Pin = Alert & {
+  /** Email of whoever pinned it — the list is attributable, and anyone may unpin. */
+  pinned_by: string;
+  pinned_at: string;
+};
+
+/** A pin is an alert plus two fields, so it validates as one first. */
+export function parsePin(raw: unknown): Pin | null {
+  const a = parseAlert(raw);
+  if (!a) return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.pinned_by !== "string" || typeof o.pinned_at !== "string") return null;
+  return { ...a, pinned_by: o.pinned_by, pinned_at: o.pinned_at };
+}
+
+/** Just the local part of an email — the list needs "who", not an address. */
+export const whoLabel = (email: string) => email.split("@")[0] || email;
 
 export type AlertFilter = {
   facility?: string | null;
@@ -121,6 +146,11 @@ export function parseAlert(raw: unknown): Alert | null {
   if (typeof raw !== "object" || raw === null) return null;
   const o = raw as Record<string, unknown>;
 
+  // The key is an md5 digest from ramp_alerts(). Shape-checked because it is
+  // echoed back to the server as the identity of a read/pin action.
+  const key = o.alert_key ?? o.key;
+  if (typeof key !== "string" || !/^[0-9a-f]{32}$/.test(key)) return null;
+
   const kind = o.kind;
   if (typeof kind !== "string" || !(ALERT_KINDS as readonly string[]).includes(kind)) return null;
   const severity = o.severity;
@@ -143,6 +173,7 @@ export function parseAlert(raw: unknown): Alert | null {
   };
 
   return {
+    key,
     kind: kind as AlertKind,
     severity: severity as AlertSeverity,
     facility: o.facility,

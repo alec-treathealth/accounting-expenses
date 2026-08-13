@@ -57,6 +57,10 @@ const TABLES = [
   // the most sensitive aggregates in the warehouse, not the least.
   "agg_ramp_person",
   "agg_ramp_vendor",
+  // Added by 0012. alert_read leaks who is reviewing what; alert_pin carries a
+  // transaction-grain snapshot — a named person, a date, a merchant, an amount.
+  "alert_read",
+  "alert_pin",
 ];
 
 console.log("== anonymous PostgREST reads (each must be denied or empty) ==");

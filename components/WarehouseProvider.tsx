@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseBrowser";
-import { parseAlert, type Alert } from "@/lib/alerts";
+import { parseAlert, parsePin, type Alert, type Pin } from "@/lib/alerts";
 import type { RampPersonRow, RampVendorRow } from "@/lib/ramp";
 import type { DrillContext, DrillFilters } from "@/components/TxnDrawer";
 
@@ -96,6 +96,15 @@ type Ctx = {
   /** Facilities in scope per dim_facility, whether or not they spent anything. */
   rosterCount: number;
 
+  /** Alert keys THIS user has marked read. Personal — it drives their badge. */
+  read: Set<string>;
+  /** The shared investigation list, newest first. */
+  pins: Pin[];
+  /** Mark read / unread. Optimistic, and rolled back if the write fails. */
+  setRead: (keys: string[], value: boolean) => void;
+  /** Pin / unpin. The server takes its own snapshot; the client sends a key. */
+  setPinned: (alert: Alert, value: boolean) => void;
+
   openDrill: (ctx: DrillContext) => void;
   /** Drill with the current facility/month filters folded in. */
   scope: () => DrillFilters;
@@ -140,6 +149,12 @@ export default function WarehouseProvider({
   const [facility, setFacility] = useState("All");
   const [month, setMonth] = useState("All");
   const [drillCtx, setDrillCtx] = useState<DrillContext | null>(null);
+
+  /* Alert read state and the investigation list arrive with the feed, in the
+     same response, so the badge is never briefly wrong while a second request
+     is in flight. */
+  const [read, setReadState] = useState<Set<string>>(() => new Set());
+  const [pins, setPins] = useState<Pin[]>([]);
 
   /* Requested-set in a ref, tick in state. The ref is the source of truth (so a
      second request for the same dataset is a no-op with no render), and the tick
@@ -249,6 +264,8 @@ export default function WarehouseProvider({
             if (!res.ok) throw new Error((body && (body.message || body.error)) || res.statusText);
             if (!live()) return;
             const rows = Array.isArray(body?.alerts) ? body.alerts : [];
+            setReadState(new Set(Array.isArray(body?.read) ? body.read.map(String) : []));
+            setPins((Array.isArray(body?.pins) ? body.pins : []).map(parsePin).filter(Boolean) as Pin[]);
             land("alerts", rows.map(parseAlert).filter(Boolean) as Alert[]);
           })
           .catch(fail("alerts"));
@@ -288,6 +305,61 @@ export default function WarehouseProvider({
   );
 
   // --- drill-down -----------------------------------------------------------
+
+  // --- alert actions --------------------------------------------------------
+
+  /* Optimistic, with a real rollback. Marking 139 alerts read must feel
+     instantaneous, and a round trip before the badge clears would make the
+     button feel broken. But an optimistic update that silently keeps a failed
+     change on screen is worse than a slow one — the user would believe the
+     server has state it does not — so a rejected write puts the previous value
+     back and says so. */
+  const post = useCallback(async (payload: Record<string, unknown>, rollback: () => void) => {
+    try {
+      const res = await fetch("/api/alerts", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+    } catch (e) {
+      console.error("[warehouse] alert action failed", e);
+      rollback();
+      setLoadError("That change could not be saved. Refresh and try again.");
+    }
+  }, []);
+
+  const setRead = useCallback(
+    (keys: string[], value: boolean) => {
+      if (!keys.length) return;
+      const before = read;
+      const next = new Set(before);
+      for (const k of keys) (value ? next.add(k) : next.delete(k));
+      setReadState(next);
+      void post({ action: value ? "read" : "unread", keys }, () => setReadState(before));
+    },
+    [read, post],
+  );
+
+  const setPinned = useCallback(
+    (alert: Alert, value: boolean) => {
+      const before = pins;
+      setPins(
+        value
+          ? [
+              // Provisional row so the list updates at once. The server writes
+              // its OWN snapshot from the live feed, and the next load replaces
+              // this with that — the client never authors pinned figures.
+              { ...alert, pinned_by: "", pinned_at: new Date().toISOString() },
+              ...before.filter((p) => p.key !== alert.key),
+            ]
+          : before.filter((p) => p.key !== alert.key),
+      );
+      void post({ action: value ? "pin" : "unpin", key: alert.key }, () => setPins(before));
+    },
+    [pins, post],
+  );
 
   const openDrill = useCallback((ctx: DrillContext) => setDrillCtx(ctx), []);
 
@@ -329,9 +401,11 @@ export default function WarehouseProvider({
       facility, setFacility, month, setMonth,
       facilities, months,
       rosterCount: inScope.length || facilities.length,
+      read, pins, setRead, setPinned,
       openDrill, scope, aggFor,
     }),
-    [data, got, loadError, request, reload, facility, month, facilities, months, inScope.length, openDrill, scope, aggFor],
+    [data, got, loadError, request, reload, facility, month, facilities, months, inScope.length,
+     read, pins, setRead, setPinned, openDrill, scope, aggFor],
   );
 
   return (

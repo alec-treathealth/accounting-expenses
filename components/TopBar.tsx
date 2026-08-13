@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSupabaseBrowser } from "@/lib/supabaseBrowser";
 import { monthName } from "@/lib/format";
@@ -7,6 +8,7 @@ import { PARTIAL_MONTH } from "@/lib/pivot";
 import { useWarehouse } from "@/components/WarehouseProvider";
 import Icon from "@/components/Icon";
 import { usePrefs } from "@/components/usePrefs";
+import UpdateDataDialog from "@/components/UpdateDataDialog";
 
 /* The one place the facility and month filters live.
  *
@@ -31,6 +33,7 @@ export default function TopBar({
 }) {
   const { facility, setFacility, month, setMonth, facilities, months, got } = useWarehouse();
   const { ground, toggleGround } = usePrefs();
+  const [updating, setUpdating] = useState(false);
   const router = useRouter();
 
   async function signOut() {
@@ -89,6 +92,15 @@ export default function TopBar({
           ))}
         </select>
 
+        {/* The one filled button in the app, and the design system allows
+            exactly one per screen. It is the action that makes every other
+            figure current, so it belongs at the top of every route rather than
+            at the bottom of one of them. */}
+        <button className="btn btn-update" onClick={() => setUpdating(true)}>
+          <Icon name="upload" size={16} />
+          Update Data
+        </button>
+
         <button
           className="btn btn-ghost btn-icon"
           onClick={toggleGround}
@@ -101,6 +113,8 @@ export default function TopBar({
           <Icon name="logout" />
         </button>
       </div>
+
+      {updating && <UpdateDataDialog onClose={() => setUpdating(false)} />}
     </header>
   );
 }
