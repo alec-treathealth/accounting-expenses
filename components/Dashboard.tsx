@@ -76,7 +76,7 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
   const [got, setGot] = useState({ gm: false, aa: false, av: false, dim: false });
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const { ground, density, motion, toggleGround, setDensity, setMotion } = usePrefs();
+  const { ground, toggleGround } = usePrefs();
 
   useEffect(() => {
     let ok = true;
@@ -256,28 +256,12 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
               </label>
             ))}
           </div>
-          <div className="seg" role="radiogroup" aria-label="Density">
-            {(["compact", "comfortable"] as const).map((d) => (
-              <label key={d} className="seg-opt">
-                <input type="radio" name="ths-density" checked={density === d} onChange={() => setDensity(d)} />
-                {d === "compact" ? "Compact" : "Comfortable"}
-              </label>
-            ))}
-          </div>
           <button
             className="btn btn-secondary btn-sm"
             onClick={toggleGround}
             aria-label={`Switch to ${ground === "dark" ? "light" : "dark"} ground`}
           >
             ◐ {ground === "dark" ? "Light" : "Dark"}
-          </button>
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => setMotion(motion === "on" ? "off" : "on")}
-            aria-pressed={motion === "off"}
-            title="Stop dashboard animation. Reduced-motion OS settings are always honoured regardless of this switch."
-          >
-            {motion === "on" ? "Motion on" : "Motion off"}
           </button>
         </div>
       </header>

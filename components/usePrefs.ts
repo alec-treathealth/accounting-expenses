@@ -2,29 +2,32 @@
 
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 
-/* Display preferences that live on <html> as design-system data attributes:
-   data-ground (dark | light), data-density (compact | comfortable) and
-   data-motion (on | off). tokens.css and components.css key off these, so
-   flipping one re-tokenizes the whole page with no second code path and no
+/* Display preference that lives on <html> as a design-system data attribute:
+   data-ground (dark | light). tokens.css and components.css key off it, so
+   flipping it re-tokenizes the whole page with no second code path and no
    re-render of anything that does not consume the value.
 
    Persisted in localStorage and restored in a LAYOUT effect, which runs before
    the browser paints — so a returning user who chose the light ground does not
-   see a dark frame first. localStorage is untrusted input like any other, so
-   every value is checked against its allowed set before it reaches the DOM. */
+   see a dark frame first. localStorage is untrusted input like any other, so the
+   value is checked against its allowed set before it reaches the DOM.
+
+   Density and motion used to be user-switchable here too. They are now fixed at
+   the design-system defaults (compact, motion on), which are represented by the
+   ABSENCE of data-density / data-motion — so simply never setting them is what
+   pins them. That also means a stale "comfortable" or "off" left in localStorage
+   by the old controls is inert rather than stranding someone in a mode with no
+   switch to leave it by. The OS reduced-motion setting is still honoured, in
+   components.css, exactly as before. */
 
 const GROUNDS = ["dark", "light"] as const;
-const DENSITIES = ["compact", "comfortable"] as const;
-const MOTIONS = ["on", "off"] as const;
 
 export type Ground = (typeof GROUNDS)[number];
-export type Density = (typeof DENSITIES)[number];
-export type Motion = (typeof MOTIONS)[number];
 
-/** SSR renders the design-system defaults; these must match <html> in layout. */
-const DEFAULTS = { ground: "dark" as Ground, density: "compact" as Density, motion: "on" as Motion };
+/** SSR renders the design-system default; this must match <html> in layout. */
+const DEFAULT_GROUND: Ground = "dark";
 
-const KEY = { ground: "ths-ground", density: "ths-density", motion: "ths-motion" } as const;
+const KEY_GROUND = "ths-ground";
 
 function read<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -46,32 +49,16 @@ function write(key: string, value: string) {
   }
 }
 
-/** Only "compact" density and "on" motion are the absence of an attribute, so
- *  those two clear rather than set. Keeps the DOM honest about what is default. */
-function apply(attr: string, value: string, isDefault: boolean) {
-  const el = document.documentElement;
-  if (isDefault) el.removeAttribute(attr);
-  else el.setAttribute(attr, value);
-}
-
 export function usePrefs() {
-  const [ground, setGroundState] = useState<Ground>(DEFAULTS.ground);
-  const [density, setDensityState] = useState<Density>(DEFAULTS.density);
-  const [motion, setMotionState] = useState<Motion>(DEFAULTS.motion);
+  const [ground, setGroundState] = useState<Ground>(DEFAULT_GROUND);
 
   // Restore before paint. Deliberately useLayoutEffect, not useEffect: with
   // useEffect the first painted frame uses the SSR default and the saved
   // preference lands a frame later, which reads as a flash.
   useLayoutEffect(() => {
-    const g = read(KEY.ground, GROUNDS, DEFAULTS.ground);
-    const d = read(KEY.density, DENSITIES, DEFAULTS.density);
-    const m = read(KEY.motion, MOTIONS, DEFAULTS.motion);
+    const g = read(KEY_GROUND, GROUNDS, DEFAULT_GROUND);
     setGroundState(g);
-    setDensityState(d);
-    setMotionState(m);
     document.documentElement.setAttribute("data-ground", g);
-    apply("data-density", d, d === "compact");
-    apply("data-motion", m, m === "on");
   }, []);
 
   // Keep the meta theme-color in step with the ground so mobile browser chrome
@@ -86,19 +73,7 @@ export function usePrefs() {
   const setGround = useCallback((g: Ground) => {
     setGroundState(g);
     document.documentElement.setAttribute("data-ground", g);
-    write(KEY.ground, g);
-  }, []);
-
-  const setDensity = useCallback((d: Density) => {
-    setDensityState(d);
-    apply("data-density", d, d === "compact");
-    write(KEY.density, d);
-  }, []);
-
-  const setMotion = useCallback((m: Motion) => {
-    setMotionState(m);
-    apply("data-motion", m, m === "on");
-    write(KEY.motion, m);
+    write(KEY_GROUND, g);
   }, []);
 
   const toggleGround = useCallback(
@@ -106,5 +81,5 @@ export function usePrefs() {
     [ground, setGround],
   );
 
-  return { ground, density, motion, setGround, setDensity, setMotion, toggleGround };
+  return { ground, setGround, toggleGround };
 }
