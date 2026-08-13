@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseBrowser";
 import { usd, usdShort, pct, GROUP_COLOR, GROUP_ORDER, MONTH_LABEL, monthName } from "@/lib/format";
 import TxnDrawer, { type DrillContext, type DrillFilters } from "@/components/TxnDrawer";
+import CompareGrid from "@/components/CompareGrid";
 import { usePrefs } from "@/components/usePrefs";
 
 type GM = { facility: string; posted_period: string; kpi_group: string; amount: number; n: number };
@@ -65,6 +66,9 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
   const [fac, setFac] = useState("All");
   const [mon, setMon] = useState("All");
   const [drill, setDrill] = useState<DrillContext | null>(null);
+  /* Overview or Compare. Both read the same agg_group_month rows already in
+     memory, so switching costs nothing and fetches nothing. */
+  const [view, setView] = useState<"overview" | "compare">("overview");
   /* Per-dataset arrival, not one global flag. The four reads are independent,
      so a panel should render the moment ITS data lands instead of every panel
      waiting on the slowest query. `gm` gates the figures that must reconcile;
@@ -241,6 +245,17 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
               re-resolves. Density matters on this screen specifically — an
               accountant reconciling 402 rows wants compact; a review meeting
               on a projector wants comfortable. */}
+          {/* Comparison is reachable from the top of the page rather than
+              buried below the fold, so it is a peer of the filters, not a
+              section you scroll to. */}
+          <div className="seg" role="radiogroup" aria-label="View">
+            {(["overview", "compare"] as const).map((v) => (
+              <label key={v} className="seg-opt">
+                <input type="radio" name="ths-view" checked={view === v} onChange={() => setView(v)} />
+                {v === "overview" ? "Overview" : "Compare"}
+              </label>
+            ))}
+          </div>
           <div className="seg" role="radiogroup" aria-label="Density">
             {(["compact", "comfortable"] as const).map((d) => (
               <label key={d} className="seg-opt">
@@ -277,6 +292,10 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
         </div>
       )}
 
+      {view === "compare" ? (
+        <CompareGrid rows={gm} onCell={(filters, title) => openAgg(filters, title)} />
+      ) : (
+      <>
       <div className="grid kpis">
         <div className="card kpi ths-rise" style={rise(0)}>
           <div className="lab">Total spend</div>
@@ -437,6 +456,8 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
           </div>
         </div>
       </section>
+      </>
+      )}
 
       <footer>
         Source: “Consolidated transaction detail” export (QuickBooks) · Warehouse: Supabase <span className="mono">accounting-expenses</span> · Totals reconcile to source to the penny.
