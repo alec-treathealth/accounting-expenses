@@ -432,6 +432,13 @@ mark.dd-hit {
 .rail-logo:hover { background: var(--fill-accent-hover); color: var(--color-accent); }
 .rail-close { flex: none; }
 
+/* Both logo frames are in the DOM; CSS picks one. Chosen this way because the
+   ground is restored in a layout effect, so a JS branch would render the wrong
+   mark on the server and flash on hydration. */
+.logo-on-light { display: none; }
+[data-ground="light"] .logo-on-dark { display: none; }
+[data-ground="light"] .logo-on-light { display: inline; }
+
 .logo { display: inline-flex; align-items: center; gap: 9px; min-width: 0; }
 .logo-word {
   font-family: var(--font-heading); font-size: var(--size-h5);
