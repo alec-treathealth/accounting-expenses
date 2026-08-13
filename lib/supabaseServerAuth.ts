@@ -50,16 +50,24 @@ export function createServerAuthClient(): SupabaseClient {
 export async function getAuthorizedUser(): Promise<{ id: string; email: string | null } | null> {
   try {
     const sb = createServerAuthClient();
-    // getUser() revalidates the JWT against Supabase — do not use getSession()
-    // here, which trusts whatever is in the cookie.
-    const { data, error } = await sb.auth.getUser();
-    if (error || !data.user) return null;
 
-    // SECURITY DEFINER function, so app_access itself stays unreadable.
-    const { data: allowed, error: rpcErr } = await sb.rpc("has_dashboard_access");
-    if (rpcErr || allowed !== true) return null;
+    // Issued in PARALLEL: the allowlist check does not depend on getUser()'s
+    // result — both simply carry the same cookie-derived token — so running them
+    // sequentially spent two round trips of wall clock to learn two independent
+    // facts. Both must still pass; only the waiting is shared.
+    //
+    // getUser() revalidates the JWT against Supabase; do not swap it for
+    // getSession(), which trusts whatever is in the cookie. has_dashboard_access
+    // is SECURITY DEFINER, so app_access itself stays unreadable.
+    const [userRes, allowRes] = await Promise.all([
+      sb.auth.getUser(),
+      sb.rpc("has_dashboard_access"),
+    ]);
 
-    return { id: data.user.id, email: data.user.email ?? null };
+    if (userRes.error || !userRes.data.user) return null;
+    if (allowRes.error || allowRes.data !== true) return null;
+
+    return { id: userRes.data.user.id, email: userRes.data.user.email ?? null };
   } catch {
     return null;
   }

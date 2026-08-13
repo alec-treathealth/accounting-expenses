@@ -32,23 +32,28 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     },
   );
 
-  // Must run: this is what refreshes an expiring token and rewrites the cookie.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  // A session is not access. Public signup is open on this project, so anyone
-  // can obtain a valid session; public.app_access is the actual invite list.
-  // Checking it here means an uninvited account is bounced to /login rather
-  // than landing on a dashboard that RLS has silently emptied.
-  let invited = false;
-  if (user) {
-    const { data, error } = await supabase.rpc("has_dashboard_access");
-    invited = !error && data === true;
-  }
-
   const { pathname } = request.nextUrl;
-  if (!invited && !isPublic(pathname) && !pathname.startsWith("/api/")) {
+
+  // The login page needs the session cookie refreshed but never needs the
+  // allowlist check, so skip a round trip there.
+  const needsAllowlist = !isPublic(pathname);
+
+  // getUser() must run: it is what refreshes an expiring token and rewrites the
+  // cookie. The allowlist check does not depend on its result, so the two are
+  // issued together rather than one after the other.
+  //
+  // A session is not access. public.app_access is the actual invite list, and
+  // checking it here means an uninvited account is bounced to /login rather than
+  // landing on a dashboard that RLS has silently emptied.
+  const [userRes, allowRes] = await Promise.all([
+    supabase.auth.getUser(),
+    needsAllowlist ? supabase.rpc("has_dashboard_access") : Promise.resolve(null),
+  ]);
+
+  const user = userRes.data.user;
+  const invited = !!user && !!allowRes && !allowRes.error && allowRes.data === true;
+
+  if (!invited && !isPublic(pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     // Preserve where they were headed so login can send them back.

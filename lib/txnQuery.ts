@@ -199,6 +199,10 @@ export interface TxnDb {
   from(table: string): {
     select(columns: string, opts?: { count?: "exact"; head?: boolean }): PgBuilder;
   };
+  /** Optional: present on a real Supabase client, absent on the in-memory test
+   *  fixture. fetchTxnPage uses it for the fast exact-total path and falls back
+   *  to chunked paging when it is missing, so the offline harness still runs. */
+  rpc?(fn: string, args?: Record<string, unknown>): PromiseLike<PgResult>;
 }
 
 export type TxnRow = {
@@ -269,13 +273,35 @@ export async function fetchTxnPage(db: TxnDb, f: TxnFilters): Promise<TxnPage> {
   const rows: TxnRow[] = (pageRes.data || []).map((r) => ({ ...r, amount: Number(r.amount) }) as TxnRow);
   const count = pageRes.count ?? rows.length;
 
-  // True total for the whole filter. PostgREST cannot SUM without an RPC (and
-  // this PR adds no DDL), so page a single numeric column and add it up in
-  // integer cents — no float drift, exact to the penny.
+  // True total for the whole filter.
+  //
+  // Fast path: public.txn_totals() does count+sum server-side in ONE round trip.
+  // The fallback below pages the whole population in SUM_CHUNK-row slices, and
+  // those reads are SEQUENTIAL, so its cost scales with the slice: "Cost of Goods
+  // Sold" (18,841 rows) took 19 round trips, a month 8, a big facility 5, while
+  // the aggregate itself runs in ~3ms. The fallback is kept because the in-memory
+  // fixture in verify/txn-drilldown.mts has no .rpc(), and it stays correct — just
+  // slower — if the function is ever missing from a database.
   let amount: number | null = null;
   let exact = false;
   if (count === 0) {
     amount = 0;
+    exact = true;
+  } else if (typeof db.rpc === "function") {
+    const res = await db.rpc("txn_totals", {
+      p_facility: f.facility,
+      p_posted_period: f.month ? `${f.month}-01` : null,
+      p_kpi_group: f.kpi_group,
+      p_account_label: f.account_label,
+      p_vendor: f.vendor === NO_PAYEE ? null : f.vendor,
+      p_no_payee: f.vendor === NO_PAYEE,
+      p_q: f.q,
+    });
+    if (res.error) throw new TxnQueryError(res.error.message);
+    const row = Array.isArray(res.data) ? res.data[0] : res.data;
+    if (!row) throw new TxnQueryError("txn_totals returned no row");
+    // Round through integer cents, matching the chunked path exactly.
+    amount = toCents(row.total_amount) / 100;
     exact = true;
   } else if (count <= SUM_SCAN_CAP) {
     let total = 0;

@@ -6,8 +6,14 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // Everything except Next internals and static assets. Auth cookies must be
-  // refreshed on API routes too, so /api is intentionally NOT excluded here —
-  // updateSession() simply does not redirect for it.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  // Everything except Next internals, static assets, and /api.
+  //
+  // /api is excluded deliberately. Every API route calls getAuthorizedUser()
+  // itself — that check is the security boundary, not this one, because
+  // /api/txn reads fact_txn with service_role and so bypasses RLS entirely.
+  // Running middleware there too meant each drill-down paid FOUR sequential
+  // round trips to Supabase (getUser + has_dashboard_access, twice) before any
+  // data was read. Routes still refuse anonymous callers; only the duplication
+  // is gone.
+  matcher: ["/((?!api/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
 };

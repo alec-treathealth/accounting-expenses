@@ -125,7 +125,6 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
   // something. A facility with no expense accounts in the export must still be
   // listed, so the count can't come from the aggregates alone.
   const inScope = useMemo(() => dim.filter((d) => d.in_scope), [dim]);
-  const notes = useMemo(() => dim.filter((d) => d.note), [dim]);
 
   const facilities = useMemo(() => {
     const s = new Set(gm.map((r) => r.facility));
@@ -180,31 +179,6 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
   const big = byGroup[0] || ["—", 0];
   const avgFull = rows.filter((r) => r.posted_period !== "2026-08").reduce((s, r) => s + r.amount, 0) / 4;
 
-  /* "Reporting" means the facility APPEARED in the source export — not that it
-     spent anything. Nashville files 913 transactions in this export, but every
-     one lands in a balance-sheet account (1010 bank, 1100 A/R, 1200 payments to
-     deposit, 1500 vehicles, 2000 A/P), so it contributes no expense and never
-     reaches agg_group_month. It plainly reported; it just had no expense to
-     report. San Diego is the only in-scope facility genuinely absent from the
-     export. Counting presence rather than spend is why this reads 16 of 17 and
-     not 15 — and dim_facility.in_export, not the aggregates, is the source. */
-  const reporting =
-    fac === "All"
-      ? inScope.filter((d) => d.in_export).length
-      : new Set(rows.map((r) => r.facility)).size;
-
-  /* Reported, but with nothing to show: in the export yet no expense rows. */
-  const silentButPresent = useMemo(() => {
-    const spending = new Set(gm.map((r) => r.facility));
-    return inScope.filter((d) => d.in_export && !spending.has(d.facility)).map((d) => d.facility);
-  }, [inScope, gm]);
-
-  /* Absent from the export altogether — a different fact, and not the same as
-     spending nothing. */
-  const absent = useMemo(
-    () => inScope.filter((d) => !d.in_export).map((d) => d.facility),
-    [inScope],
-  );
 
   // vendors
   const vendors = useMemo(() => {
@@ -322,30 +296,7 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
             {big[1] ? <button className="dd-link" onClick={() => openAgg({ ...scope(), kpi_group: String(big[0]) }, String(big[0]))}>View transactions</button> : "—"}
           </div>
         </div>
-        {/* Roster vs reporting. These are different questions and the card used
-            to blur them: every in-scope facility IS counted in the denominator,
-            including the ones with no expense accounts in this export. Saying
-            "all N in scope" up front stops "13 of 15" reading as though two
-            facilities had been dropped. See the data-quality panel for why each
-            silent facility is silent — the two reasons are not the same. */}
         <div className="card kpi ths-rise" style={rise(2)}>
-          <div className="lab">Facilities reporting</div>
-          <div className="val">{got.gm ? <>{reporting}{fac === "All" ? ` of ${rosterCount}` : ""}</> : <Sk className="sk-kpi" />}</div>
-          <div className="foot">
-            {fac !== "All"
-              ? fac
-              : [
-                  `all ${rosterCount} in scope`,
-                  absent.length ? `${absent.length} absent from this export` : "",
-                  silentButPresent.length
-                    ? `${silentButPresent.length} reporting with no expense accounts`
-                    : "",
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-          </div>
-        </div>
-        <div className="card kpi ths-rise" style={rise(3)}>
           <div className="lab">Avg / full month</div>
           <div className="val">{got.gm ? usd(avgFull) : <Sk className="sk-kpi" />}</div>
           <div className="foot">Apr–Jul, excludes partial Aug</div>
@@ -482,7 +433,6 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
                 <td className="num">{usd(a.amount)}</td>
               </tr>
             ))}</tbody></table>
-            {notes.map((f) => <div key={f.facility} style={{ marginTop: 10, paddingLeft: 10, borderLeft: "2px solid var(--axis)" }}><b>{f.facility}:</b> {f.note}</div>)}
             <div style={{ marginTop: 10, color: "var(--muted)" }}>Scope: expense + COGS only; income, equity draws and balance-sheet movement excluded. Only the expense/COGS side of each transaction is summed, so no double-count.</div>
           </div>
         </div>
