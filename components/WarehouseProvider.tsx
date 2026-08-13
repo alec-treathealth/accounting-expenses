@@ -159,27 +159,53 @@ export default function WarehouseProvider({
     if (grew) setTick((t) => t + 1);
   }, []);
 
+  /* A load is invalidated by UNMOUNT or by a RELOAD, never by the effect simply
+     re-running.
+     ---------------------------------------------------------------------------
+     The obvious `let alive = true` + cleanup pattern is WRONG here and would have
+     broken the first paint of every page. On mount, a page's useDatasets effect
+     runs BEFORE the provider's (React runs child effects first), so it calls
+     request() and bumps `tick`. The provider's effect then runs once, starts all
+     the reads, and is IMMEDIATELY re-run by that tick change — whose cleanup
+     would flip `alive` to false and make every one of those in-flight reads
+     discard its result on arrival. Because the keys are already in `inflight`,
+     nothing would retry them, and the dashboard would sit on skeletons forever.
+
+     A generation counter separates the two cases: only reload() invalidates. */
+  const mounted = useRef(true);
+  const generation = useRef(0);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
+
   const reload = useCallback(() => {
+    generation.current += 1;
     inflight.current.clear();
     setGot({ gm: false, dim: false, alerts: false, aa: false, av: false, ramp: false, rampVendor: false });
     setReloadKey((k) => k + 1);
   }, []);
 
   useEffect(() => {
-    let alive = true;
     const sb = getSupabaseBrowser();
+    const gen = generation.current;
+    const live = () => mounted.current && generation.current === gen;
 
     const fail = (what: string) => (e: unknown) => {
-      if (!alive) return;
+      if (!live()) return;
       // Generic to the user, specific in the console: the message can carry
       // PostgREST detail that must not be rendered into the page.
       console.error(`[warehouse] ${what} read failed`, e);
       setLoadError("Could not load some figures. Refresh to retry.");
+      // Drop it from in-flight so a later reload() can retry rather than
+      // treating a failed read as one that is still on its way.
       inflight.current.delete(what as DatasetKey);
     };
 
     const land = <K extends DatasetKey>(key: K, rows: Data[K]) => {
-      if (!alive) return;
+      if (!live()) return;
       setData((d) => ({ ...d, [key]: rows }));
       setGot((g) => ({ ...g, [key]: true }));
     };
@@ -194,7 +220,7 @@ export default function WarehouseProvider({
         .select("*")
         .limit(limit)
         .then(({ data: rows, error }) => {
-          if (!alive) return;
+          if (!live()) return;
           if (error) return fail(key)(error);
           land(key, ((rows ?? []) as any[]).map(map) as Data[K]);
         }, fail(key));
@@ -219,9 +245,9 @@ export default function WarehouseProvider({
       alerts: () => {
         fetch("/api/alerts", { credentials: "same-origin", headers: { accept: "application/json" } })
           .then(async (res) => {
-            if (!alive) return;
             const body = await res.json().catch(() => null);
             if (!res.ok) throw new Error((body && (body.message || body.error)) || res.statusText);
+            if (!live()) return;
             const rows = Array.isArray(body?.alerts) ? body.alerts : [];
             land("alerts", rows.map(parseAlert).filter(Boolean) as Alert[]);
           })
@@ -229,15 +255,15 @@ export default function WarehouseProvider({
       },
     };
 
-    for (const key of wanted.current) {
+    /* Iterate a SNAPSHOT of the wanted set. Mutating a Set while a for..of walks
+       it is legal in JS but the new entries would be visited by this pass and by
+       the pass the tick triggers, and only `inflight` would stop the double
+       fetch — relying on that is a trap for whoever edits this next. */
+    for (const key of [...wanted.current]) {
       if (inflight.current.has(key)) continue;
       inflight.current.add(key);
       loaders[key]();
     }
-
-    return () => {
-      alive = false;
-    };
   }, [tick, reloadKey]);
 
   // --- derived filter lists -------------------------------------------------

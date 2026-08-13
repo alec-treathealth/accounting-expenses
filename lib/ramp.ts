@@ -54,9 +54,14 @@ export type RampFilter = {
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
 
-/* "All" is the dashboard's sentinel for an unset select. Treating it as a real
-   facility name would filter everything away, so it is normalised out here
-   rather than at every call site. */
+/* "All" is the value the shell's facility and month SELECTS carry when nothing
+   is picked, so it is normalised out here rather than at every call site.
+
+   It applies to those two ONLY. `person` is never a select — it comes from a
+   selection in the ranked list — so it is matched literally. Extending the
+   sentinel to it would mean a cardholder who happened to be recorded as "All"
+   silently matched everyone, which is the kind of bug that shows up as a number
+   nobody can explain. */
 const unset = (v: string | null | undefined) => !v || v === "All";
 
 export function filterRamp(rows: RampPersonRow[], f: RampFilter): RampPersonRow[] {
@@ -64,7 +69,7 @@ export function filterRamp(rows: RampPersonRow[], f: RampFilter): RampPersonRow[
     (r) =>
       (unset(f.facility) || r.facility === f.facility) &&
       (unset(f.month) || r.posted_period === f.month) &&
-      (unset(f.person) || r.person === f.person),
+      (f.person == null || r.person === f.person),
   );
 }
 

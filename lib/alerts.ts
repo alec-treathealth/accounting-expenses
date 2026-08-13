@@ -94,6 +94,10 @@ export type AlertFilter = {
   person?: string | null;
 };
 
+/* "All" is what the shell's facility/month selects and the feed's kind segmented
+   control carry when nothing is picked. `person` is not one of those — it is a
+   literal name — so it is matched exactly; a cardholder recorded as "All" must
+   not silently match everyone. */
 const unset = (v: string | null | undefined) => !v || v === "All";
 
 export function filterAlerts(alerts: Alert[], f: AlertFilter): Alert[] {
@@ -102,7 +106,7 @@ export function filterAlerts(alerts: Alert[], f: AlertFilter): Alert[] {
       (unset(f.facility) || a.facility === f.facility) &&
       (unset(f.month) || a.posted_period === f.month) &&
       (unset(f.kind) || a.kind === f.kind) &&
-      (unset(f.person) || a.person === f.person),
+      (f.person == null || a.person === f.person),
   );
 }
 
