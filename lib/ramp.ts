@@ -156,28 +156,43 @@ export type VendorSlice = {
   rows: (Tally & { vendor: string })[];
   /** Sum of the rows above. */
   shown: Tally;
-  /** True total for this person from agg_ramp_person, for the coverage line. */
-  covered: number;
+  /** The all-months denominator `shown` is a fraction of. */
+  covered: Tally;
+  /** shown / covered, as a percentage, or null if there is nothing to divide by. */
+  coverage: number | null;
 };
 
 /**
- * A person's merchants, highest first.
+ * A person's merchants, highest first, with the share of their spend covered.
  *
  * agg_ramp_vendor holds only the top 12 per (facility, person), so this list is
  * DELIBERATELY INCOMPLETE and `shown` will be less than the person's true total.
  * The caller must print the coverage — a truncated list that looks complete is a
  * lie, and on a financial screen that is the expensive kind of lie.
  *
+ * IT TAKES THE ROWS, NOT A TOTAL, AND THAT IS THE POINT. agg_ramp_vendor has no
+ * month dimension — its key is (facility, person, vendor) — so `shown` always
+ * spans every month. An earlier version accepted a pre-computed total and the
+ * only caller handed it a MONTH-SCOPED one, which printed "$41,203 of $9,120
+ * (452%). The remainder is spread across smaller merchants."
+ *
+ * Deriving the denominator here does not make that impossible — hand this
+ * function month-scoped rows and it will still divide by them. What it does is
+ * put the numerator and the denominator under one roof, so the two can only
+ * disagree if the CALLER passes the wrong set, which verify/ramp.mts asserts it
+ * does not.
+ *
  * When no facility is pinned, a vendor appearing in several facilities' top 12
  * is summed across them. Each contribution is exact; what is missing is the
- * facilities where that vendor fell below rank 12, which is precisely what the
- * coverage figure discloses.
+ * facilities where that vendor fell below rank 12 — precisely what `coverage`
+ * discloses.
  */
 export function topVendorsFor(
   vendors: RampVendorRow[],
+  /** EVERY month's rows. Passing a month-scoped set is the bug described above. */
+  allMonthRows: RampPersonRow[],
   person: string,
   facility: string | null | undefined,
-  personTotal: number,
 ): VendorSlice {
   const acc = new Map<string, Tally>();
   for (const v of vendors) {
@@ -194,7 +209,10 @@ export function topVendorsFor(
   const rows = [...acc.entries()]
     .map(([vendor, v]) => ({ vendor, amount: r2(v.amount), n: v.n }))
     .sort((a, b) => b.amount - a.amount || a.vendor.localeCompare(b.vendor));
-  return { rows, shown: total(rows), covered: personTotal };
+
+  const shown = total(rows);
+  const covered = total(filterRamp(allMonthRows, { facility, person }));
+  return { rows, shown, covered, coverage: share(shown.amount, covered.amount) };
 }
 
 /** Share of a whole, guarded so a zero or negative denominator reports null

@@ -7,7 +7,7 @@
 import { existsSync, readFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
-import { cellKey, delta, dimValue, pivot, type AggRow, type Dim } from "../lib/pivot.ts";
+import { PARTIAL_MONTH, avgPerFullMonth, cellKey, delta, dimValue, pivot, type AggRow, type Dim } from "../lib/pivot.ts";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let failures = 0;
@@ -119,6 +119,32 @@ for (const [rowDim, colDim] of PAIRS) {
     threw = true;
   }
   ok(threw, "pivot refuses the same dimension on both axes");
+}
+
+// avgPerFullMonth() — REGRESSION. Written inline in the dashboard, the divisor
+// counted every full month in the warehouse while the numerator honoured the
+// month picker, so a single month divided by four and August printed "$0".
+{
+  const months = ["2026-04", "2026-05", "2026-06", "2026-07", PARTIAL_MONTH];
+  const full = rows.filter((r) => r.posted_period !== PARTIAL_MONTH);
+  const fullSum = full.reduce((s, r) => s + r.amount, 0);
+
+  const all = avgPerFullMonth(rows, months, "All");
+  ok(all !== null && Math.abs(all - fullSum / 4) < 0.005, "unfiltered average divides full-month spend by 4", "$" + (all ?? 0).toFixed(2));
+
+  const july = rows.filter((r) => r.posted_period === "2026-07");
+  const julySum = july.reduce((s, r) => s + r.amount, 0);
+  const gotJuly = avgPerFullMonth(july, months, "2026-07");
+  ok(gotJuly !== null && Math.abs(gotJuly - julySum) < 0.005, "one month selected averages to that month itself, not a quarter of it", "$" + (gotJuly ?? 0).toFixed(2));
+  // The bug divided the selected month by the count of ALL full months. Assert
+  // the figure is not that value. (Comparing against `all` would not work: July
+  // happens to sit near the four-month average, so the two are close by
+  // coincidence and a "much larger than average" test would fail on good code.)
+  ok(gotJuly !== null && Math.abs(gotJuly - julySum / 4) > 0.005, "the one-month figure is not the four-way division the bug produced", `$${(julySum / 4).toFixed(2)} would be the bug`);
+
+  const aug = rows.filter((r) => r.posted_period === PARTIAL_MONTH);
+  ok(avgPerFullMonth(aug, months, PARTIAL_MONTH) === null, "the partial month reports null, never a confident $0");
+  ok(avgPerFullMonth([], ["2026-04"], "All") === 0, "an empty but valid scope is a real zero, not null");
 }
 
 // delta()

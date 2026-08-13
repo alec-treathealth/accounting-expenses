@@ -71,11 +71,32 @@ export default function RampPeople() {
 
   return (
     <>
+      {/* agg_ramp_person is requested BY THIS PAGE, so every first visit paints
+          before it lands. Without the gate this line reads "$0.00 on 0 Ramp card
+          charges across 0 cardholders" — a statement of fact — while the panel
+          beside it correctly shows "…". */}
       <p className="page-note">
-        {usd(rampTotal.amount)} on {rampTotal.n.toLocaleString()} Ramp card charges across{" "}
-        {people.length} cardholder{people.length === 1 ? "" : "s"}
-        {allTotal > 0 && <> — {pct(rampTotal.amount / allTotal)} of all spend in this view</>}.{" "}
+        {got.ramp ? (
+          <>
+            {usd(rampTotal.amount)} on {rampTotal.n.toLocaleString()} Ramp card charges across{" "}
+            {people.length} cardholder{people.length === 1 ? "" : "s"}
+            {allTotal > 0 && <> — {pct(rampTotal.amount / allTotal)} of all spend in this view</>}.{" "}
+          </>
+        ) : (
+          <>Loading Ramp card spend… </>
+        )}
         <b>This is a slice of the Dashboard&rsquo;s total, not an addition to it.</b>
+      </p>
+
+      {/* Mounted unconditionally so its TEXT mutates rather than the node being
+          inserted: a status region that appears with its content is announced
+          wholesale, one that changes in place announces only the change. */}
+      <p className="sr-only" role="status">
+        {selected.length === 0
+          ? "No cardholder selected"
+          : selected.length === 1
+            ? `Showing ${selected[0]}`
+            : `Comparing ${selected.length} cardholders`}
       </p>
 
       <div className="split">
@@ -145,7 +166,13 @@ export default function RampPeople() {
           </div>
         </section>
 
-        <section className="card person-pane" aria-live="polite">
+        {/* Deliberately NOT aria-live. A live region around the whole pane
+            queues every text node React inserts — the name, the meta line, one
+            row per KPI group, five spark columns, twelve merchant rows and two
+            paragraphs of fine print — several hundred uninterruptible words on
+            every selection. The persistent status node below announces the one
+            fact that changed instead. */}
+        <section className="card person-pane">
           {selected.length === 0 && (
             <div className="person-empty">
               <h2>Ramp card spend</h2>

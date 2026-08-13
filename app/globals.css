@@ -120,9 +120,15 @@ button.btn-sm { min-height: 26px; }
    auto-fit collapses empty tracks, so three cards give exactly three columns
    when there is room and wrap when there is not, at any rail width, and a
    fourth card added later needs no CSS change. */
-.kpis { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); margin-top: var(--space-4); }
+/* min(Npx, 100%) is not belt-and-braces — auto-fit collapses empty TRACKS but it
+   cannot shrink a track below a fixed minmax minimum, so a bare minmax(340px,1fr)
+   is 340px wide inside a 298px content box at a 320px viewport (iPhone SE, or
+   any 200% zoom under WCAG 1.4.10 reflow) and pushes the whole document
+   sideways. min() clamps the minimum to the container and the overflow cannot
+   happen at any width. */
+.kpis { grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr)); margin-top: var(--space-4); }
 section { margin-top: var(--space-3); }
-.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: var(--space-3); }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: var(--space-3); }
 
 /* Anything that can outgrow its column scrolls INSIDE its own box. The page body
    must never scroll sideways — a horizontal scrollbar on a financial table is
@@ -169,7 +175,10 @@ section { margin-top: var(--space-3); }
 .sw { width: 9px; height: 9px; border-radius: 2px; flex: none; display: inline-block; }
 /* keep the swatch on the label's first line when the name wraps */
 .bar-lab .sw { margin-top: 3px; }
-@media (max-width: 480px) { .bar-row { --bar-lab: 120px; } }
+/* .sk-row too, not just .bar-row: the skeleton is sized to match the real row,
+   so an override that reaches only one of them makes the loading state wider
+   than the loaded state and overflows the card it sits in. */
+@media (max-width: 480px) { .bar-row, .sk-row { --bar-lab: 120px; } }
 
 .track {
   height: 16px; background: color-mix(in srgb, var(--color-text) 10%, transparent);
@@ -438,7 +447,14 @@ mark.dd-hit {
 }
 
 .rail-foot { margin: 0; padding: var(--space-4) var(--space-4) 0; font-size: var(--size-meta); color: var(--text-meta); line-height: 1.5; }
+/* The scrim belongs to the off-canvas drawer and must not survive into a width
+   where the drawer does not exist. AppShell closes the menu on the breakpoint
+   change, and this is the second line of defence: without it, opening the menu
+   on a phone and rotating to landscape leaves a full-screen click-blocking
+   overlay above the top bar (z-index 29 over 20) with its only dismiss control
+   — .topbar-menu — now display:none. */
 .rail-scrim { position: fixed; inset: 0; z-index: 29; background: color-mix(in srgb, var(--color-bg) 60%, transparent); }
+@media (min-width: 760px) { .rail-scrim { display: none; } }
 
 .topbar {
   position: sticky; top: 0; z-index: 20;

@@ -331,9 +331,15 @@ export default function TxnDrawer({ ctx, onClose }: { ctx: DrillContext; onClose
             <div className="dd-ok">Detail sums exactly to the dashboard figure.</div>
           )}
           {expected && !expected.compare && (
+            /* Was hard-coded to "comes from the top-150 vendor extract". That
+               was written for one caller and then rendered for EVERY
+               compare:false figure, asserting a provenance that was untrue of
+               the others — and, since agg_vendor is now rebuilt in full, no
+               longer true of the original caller either. Say only what holds
+               for any figure the drawer was told not to compare. */
             <div className="dd-note">
-              {expected.source} comes from the top-150 vendor extract, so it can understate the detail below. The
-              detail total is the authoritative figure for this filter.
+              {expected.source} is a summary figure that does not describe exactly this slice, so it is not
+              compared against the rows below. The detail total is the authoritative figure for this filter.
             </div>
           )}
           {data && data.truncated && (

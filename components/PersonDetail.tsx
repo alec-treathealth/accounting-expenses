@@ -34,22 +34,28 @@ export default function PersonDetail({
   /** Ramp spend for everyone in this scope, for the share figure. */
   rampTotal: number;
 }) {
-  const { facility, month, months, openDrill } = useWarehouse();
+  const { data, facility, month, months, openDrill } = useWarehouse();
 
   const mine = useMemo(() => filterRamp(rows, { person }), [rows, person]);
   const t = useMemo(() => total(mine), [mine]);
   const groups = useMemo(() => byGroup(mine), [mine]);
-  const trend = useMemo(() => byMonth(filterRamp(rows, { person }), months), [rows, person, months]);
+  const trend = useMemo(() => byMonth(mine, months), [mine, months]);
+
+  /* data.ramp, NOT the month-scoped `rows`. agg_ramp_vendor has no month
+     dimension, so the merchant figures always span every month; dividing them
+     by a month-scoped total printed "$41,203 of $9,120 (452%)". topVendorsFor
+     derives its own denominator from these rows so numerator and denominator
+     cannot disagree. The header total above stays month-scoped — that one is
+     what the user actually asked to see. */
   const vs = useMemo(
-    () => topVendorsFor(vendors, person, facility, t.amount),
-    [vendors, person, facility, t.amount],
+    () => topVendorsFor(vendors, data.ramp, person, facility),
+    [vendors, data.ramp, person, facility],
   );
 
   const pctOfRamp = share(t.amount, rampTotal);
   const gmax = Math.max(...groups.map((g) => Math.abs(g.amount)), 1);
   const tmax = Math.max(...trend.map((m) => Math.abs(m.amount)), 1);
   const vmax = Math.max(...vs.rows.map((v) => Math.abs(v.amount)), 1);
-  const coverage = share(vs.shown.amount, t.amount);
 
   const drillFilters = {
     person,
@@ -57,14 +63,27 @@ export default function PersonDetail({
     ...(month === "All" ? {} : { month }),
   };
 
-  const openPerson = (extra: Record<string, string> = {}, title = person) =>
+  /**
+   * Open the drawer on this cardholder, optionally narrowed further.
+   *
+   * `expected` MUST describe the population the drill actually returns. Passing
+   * the whole-person total for a single-group drill would show the drawer a
+   * figure it can never match — and, because that forced `compare: false`, it
+   * also fired the drawer's "this came from the top-150 vendor extract" note,
+   * which is untrue of agg_ramp_person: it ties to the Ramp slice exactly
+   * (GUARD 4, migration 0008) using the SAME ramp_person() definition as the
+   * drill, so every one of these figures is comparable.
+   */
+  const openPerson = (
+    extra: Record<string, string> = {},
+    title = person,
+    expected: { amount: number; n: number } = t,
+    source = "Cardholder total",
+  ) =>
     openDrill({
       title,
       filters: { ...drillFilters, ...extra },
-      /* agg_ramp_person ties to the Ramp slice of fact_txn exactly (GUARD 4 in
-         migration 0008), and the drill uses the SAME ramp_person() definition,
-         so this figure is comparable and a mismatch is a real problem. */
-      expected: { amount: t.amount, n: t.n, source: "Cardholder total", compare: Object.keys(extra).length === 0 },
+      expected: { amount: expected.amount, n: expected.n, source, compare: true },
     });
 
   return (
@@ -90,7 +109,9 @@ export default function PersonDetail({
             key={g.kpi_group}
             className="bar-row dd-trigger"
             aria-label={`${g.kpi_group}, ${usd(g.amount)}. View transactions`}
-            onClick={() => openPerson({ kpi_group: g.kpi_group }, `${person} · ${g.kpi_group}`)}
+            onClick={() =>
+              openPerson({ kpi_group: g.kpi_group }, `${person} · ${g.kpi_group}`, g, "Cardholder × group total")
+            }
           >
             <div className="bar-lab"><span className="sw" style={{ background: gcolor(g.kpi_group) }} />{g.kpi_group}</div>
             <div className="track">
@@ -144,9 +165,10 @@ export default function PersonDetail({
             share — is what stops a reader subtotalling it and finding it short. */}
         {vs.rows.length > 0 && (
           <p className="fine">
-            Top {VENDOR_TOP_N} merchants per facility{coverage !== null && <> — {usd(vs.shown.amount)} of {usd(t.amount)} ({coverage}%)</>}.
+            {month !== "All" && "Merchant detail is not held by month, so these figures cover every month, not just the one selected. "}
+            Top {VENDOR_TOP_N} merchants per facility
+            {vs.coverage !== null && <> — {usd(vs.shown.amount)} of {usd(vs.covered.amount)} ({vs.coverage}%)</>}.
             The remainder is spread across smaller merchants.
-            {month !== "All" && " Merchant detail is not held by month, so this covers every month."}
           </p>
         )}
       </section>

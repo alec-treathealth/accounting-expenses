@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { usd, usdShort, pct, GROUP_COLOR, GROUP_ORDER, MONTH_LABEL, monthName } from "@/lib/format";
-import { PARTIAL_MONTH } from "@/lib/pivot";
+import { PARTIAL_MONTH, avgPerFullMonth } from "@/lib/pivot";
 import { useDatasets, useWarehouse } from "@/components/WarehouseProvider";
 import { Sk, SkRows, rise } from "@/components/Skeleton";
 
@@ -57,12 +57,10 @@ export default function Dashboard() {
 
   const big = byGroup[0] || ["—", 0];
 
-  /* Average over FULL months only. August covers 11 days; folding it in would
-     report an average that describes the calendar rather than the business. */
-  const fullMonths = useMemo(() => months.filter((m) => m !== PARTIAL_MONTH), [months]);
-  const avgFull = fullMonths.length
-    ? rows.filter((r) => r.posted_period !== PARTIAL_MONTH).reduce((s, r) => s + r.amount, 0) / fullMonths.length
-    : 0;
+  /* Average over FULL months only — August covers 11 days. The numerator and
+     denominator have to be scoped identically, which is fiddly enough that it
+     lives in lib/pivot.ts where verify/pivot.mts can assert it. */
+  const avgFull = useMemo(() => avgPerFullMonth(rows, months, mon), [rows, months, mon]);
 
   const vendors = useMemo(() => {
     const rs = av.filter((v) => fac === "All" || v.facility === fac);
@@ -155,8 +153,16 @@ export default function Dashboard() {
 
         <div className="card kpi ths-rise" style={rise(2)}>
           <div className="lab">Avg / full month</div>
-          <div className="val">{got.gm ? usd(avgFull) : <Sk className="sk-kpi" />}</div>
-          <div className="foot">Apr–Jul, excludes partial Aug</div>
+          <div className="val">
+            {!got.gm ? <Sk className="sk-kpi" /> : avgFull === null ? "—" : usd(avgFull)}
+          </div>
+          <div className="foot">
+            {mon === "All"
+              ? "Apr–Jul, excludes partial Aug"
+              : mon === PARTIAL_MONTH
+                ? "August is partial — no full month in view"
+                : `${MONTH_LABEL[mon] ?? monthName(mon)} only`}
+          </div>
         </div>
       </div>
 
@@ -331,13 +337,27 @@ export default function Dashboard() {
         <div className="card">
           <h2>Data quality &amp; exceptions</h2>
           <div className="small">
+            {/* Gated on got.aa for the same reason every other figure on this
+                page is: until agg_account lands, "$0 in 0 un-mapped accounts"
+                is a confident claim that the taxonomy is clean, on the one
+                panel whose job is to report that it is not. */}
             <div style={{ marginBottom: 8 }}>
-              <b>{usd(unclTot)}</b> in {exceptions.length} un-mapped accounts. The{" "}
-              <span className="mono">map_account_group</span> table holds the taxonomy; each upload rebuilds from it.
+              {got.aa ? (
+                <>
+                  <b>{usd(unclTot)}</b> in {exceptions.length} un-mapped accounts.
+                </>
+              ) : (
+                <Sk className="sk-line" w="55%" />
+              )}{" "}
+              The <span className="mono">map_account_group</span> table holds the taxonomy; each upload rebuilds
+              from it.
             </div>
             <div className="table-scroll">
               <table>
                 <tbody>
+                  {!got.aa && (
+                    <tr><td style={{ padding: 0 }}><SkRows n={4} /></td></tr>
+                  )}
                   {exceptions.slice(0, 6).map((a) => (
                     <tr key={a.account_label}>
                       <td className="t">

@@ -291,6 +291,14 @@ export default function WarehouseProvider({
 
   const openDrill = useCallback((ctx: DrillContext) => setDrillCtx(ctx), []);
 
+  /* Stable, not an inline arrow at the call site. TxnDrawer keys its focus and
+     body-scroll effect on `onClose`, so a fresh identity on every provider
+     render tears that effect down and re-runs it — which restores focus to the
+     element that opened the drawer and then moves it to the close button. A
+     dataset landing while someone is typing in the drawer's search box would
+     lose their caret mid-word, and the next space would press Close. */
+  const closeDrill = useCallback(() => setDrillCtx(null), []);
+
   const scope = useCallback(
     (): DrillFilters => ({
       ...(facility === "All" ? {} : { facility }),
@@ -329,7 +337,7 @@ export default function WarehouseProvider({
   return (
     <WarehouseCtx.Provider value={value}>
       {children}
-      {drill(drillCtx, () => setDrillCtx(null))}
+      {drill(drillCtx, closeDrill)}
     </WarehouseCtx.Provider>
   );
 }

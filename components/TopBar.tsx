@@ -20,11 +20,14 @@ export default function TopBar({
   blurb,
   onMenu,
   menuOpen,
+  menuRef,
 }: {
   title: string;
   blurb: string;
   onMenu: () => void;
   menuOpen: boolean;
+  /** The shell needs this to hand focus back when the drawer closes. */
+  menuRef?: React.Ref<HTMLButtonElement>;
 }) {
   const { facility, setFacility, month, setMonth, facilities, months, got } = useWarehouse();
   const { ground, toggleGround } = usePrefs();
@@ -39,6 +42,7 @@ export default function TopBar({
   return (
     <header className="topbar">
       <button
+        ref={menuRef}
         className="btn btn-ghost btn-icon topbar-menu"
         onClick={onMenu}
         aria-expanded={menuOpen}
