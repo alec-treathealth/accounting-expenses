@@ -73,7 +73,12 @@ export async function GET(req: NextRequest) {
        tiny table reads afterwards would add round trips for nothing. */
     const [feed, readRes, pinRes] = await Promise.all([
       loadAlerts(db),
-      db.from("alert_read").select("alert_key").eq("email", email).limit(5000),
+      /* .limit() does NOT raise PostgREST's db-max-rows (1000 here) — it only
+         lowers it, silently. 278 rows today and one per alert a person marks
+         read, so this is a slow fuse rather than a live bug: past 1,000 the
+         oldest read-state simply stops coming back and previously-reviewed
+         alerts reappear as unread. Ordered + ranged so the cap is explicit. */
+      db.from("alert_read").select("alert_key").eq("email", email).order("alert_key", { ascending: true }).range(0, 999),
       db.from("alert_pin").select("*").order("pinned_at", { ascending: false }).limit(500),
     ]);
     if (readRes.error) throw new Error(readRes.error.message);

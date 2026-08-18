@@ -7,7 +7,7 @@
 import { existsSync, readFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
-import { PARTIAL_MONTH, avgPerFullMonth, cellKey, delta, dimValue, pivot, type AggRow, type Dim } from "../lib/pivot.ts";
+import { avgPerFullMonth, cellKey, delta, dimValue, partialMonth, pivot, type AggRow, type Dim } from "../lib/pivot.ts";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let failures = 0;
@@ -132,12 +132,20 @@ for (const [rowDim, colDim] of PAIRS) {
 // counted every full month in the warehouse while the numerator honoured the
 // month picker, so a single month divided by four and August printed "$0".
 {
-  const months = ["2026-04", "2026-05", "2026-06", "2026-07", PARTIAL_MONTH];
-  const full = rows.filter((r) => r.posted_period !== PARTIAL_MONTH);
+  /* Derived from the LIVE data, not a pinned list. The previous version hardcoded
+     its own five months, which is why it kept passing while the app's pinned
+     PARTIAL_MONTH was drifting toward being wrong — the test and the code shared
+     the same stale assumption instead of checking each other. */
+  const months = [...new Set(rows.map((r) => r.posted_period))].sort();
+  const PARTIAL = partialMonth(months);
+  ok(PARTIAL === months[months.length - 1], "the partial month is the newest month in the data", PARTIAL);
+  const full = rows.filter((r) => r.posted_period !== PARTIAL);
   const fullSum = full.reduce((s, r) => s + r.amount, 0);
 
+  const fullCount = months.length - 1;
   const all = avgPerFullMonth(rows, months, "All");
-  ok(all !== null && Math.abs(all - fullSum / 4) < 0.005, "unfiltered average divides full-month spend by 4", "$" + (all ?? 0).toFixed(2));
+  ok(all !== null && Math.abs(all - fullSum / fullCount) < 0.005,
+     `unfiltered average divides full-month spend by ${fullCount}`, "$" + (all ?? 0).toFixed(2));
 
   const july = rows.filter((r) => r.posted_period === "2026-07");
   const julySum = july.reduce((s, r) => s + r.amount, 0);
@@ -147,11 +155,18 @@ for (const [rowDim, colDim] of PAIRS) {
   // the figure is not that value. (Comparing against `all` would not work: July
   // happens to sit near the four-month average, so the two are close by
   // coincidence and a "much larger than average" test would fail on good code.)
-  ok(gotJuly !== null && Math.abs(gotJuly - julySum / 4) > 0.005, "the one-month figure is not the four-way division the bug produced", `$${(julySum / 4).toFixed(2)} would be the bug`);
+  ok(gotJuly !== null && Math.abs(gotJuly - julySum / fullCount) > 0.005, "the one-month figure is not the whole-range division the bug produced", `$${(julySum / fullCount).toFixed(2)} would be the bug`);
 
-  const aug = rows.filter((r) => r.posted_period === PARTIAL_MONTH);
-  ok(avgPerFullMonth(aug, months, PARTIAL_MONTH) === null, "the partial month reports null, never a confident $0");
-  ok(avgPerFullMonth([], ["2026-04"], "All") === 0, "an empty but valid scope is a real zero, not null");
+  const aug = rows.filter((r) => r.posted_period === PARTIAL);
+  ok(avgPerFullMonth(aug, months, PARTIAL) === null, "the partial month reports null, never a confident $0");
+  /* Two months, so one of them is complete. With a SINGLE month the newest — and
+     therefore only — month is the partial one, and "average per full month" has
+     no answer: null is the honest result and 0 would be a confident lie. The old
+     fixture passed a one-month list and got 0 only because the partial month was
+     pinned to a literal that did not appear in it. */
+  ok(avgPerFullMonth([], ["2026-04", "2026-05"], "All") === 0, "an empty but valid scope is a real zero, not null");
+  ok(avgPerFullMonth([{ posted_period: "2026-04", amount: 100 }], ["2026-04"], "All") === null,
+     "a single month is the partial one, so there is no full-month average to give");
 }
 
 // delta()

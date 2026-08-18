@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { usd, usdShort, GROUP_COLOR, MONTH_LABEL, monthName } from "@/lib/format";
-import { PARTIAL_MONTH } from "@/lib/pivot";
+import { partialMonth } from "@/lib/pivot";
 import {
   byGroup,
   byMonth,
@@ -137,7 +137,7 @@ export default function PersonDetail({
                 </div>
                 <div className="spark-lab">
                   {MONTH_LABEL[m.month] ?? monthName(m.month)}
-                  {m.month === PARTIAL_MONTH ? "*" : ""}
+                  {m.month === partialMonth(months) ? "*" : ""}
                 </div>
               </div>
             ))}

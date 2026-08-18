@@ -39,8 +39,9 @@ export default function AlertsFeed() {
     [data.alerts, facility, month],
   );
 
-  const unreadCount = useMemo(() => inScope.filter((a) => !read.has(a.key)).length, [inScope, read]);
-
+  /* `counts` stays on inScope — the per-kind chips exist to show what is
+     AVAILABLE under each filter. Everything else on this page counts `shown`;
+     see the note above `unreadCount` below. */
   const counts = useMemo(() => {
     const c: Record<string, number> = { All: inScope.length };
     for (const k of ALERT_KINDS) c[k] = 0;
@@ -56,8 +57,24 @@ export default function AlertsFeed() {
     return [...list].sort((a, b) => Number(read.has(a.key)) - Number(read.has(b.key)));
   }, [inScope, kind, read]);
 
+  /* EVERY FIGURE AND EVERY ACTION ON THIS PAGE COUNTS THE ROWS ON SCREEN.
+     unreadCount was computed over inScope, which honours facility and month but
+     NOT the type filter, while the list honours all three. With "Possible
+     duplicate" selected that put three populations in one sentence — 36 rows
+     visible, a count of 151, and a dollar figure over the 36 — and, worse, made
+     "Mark all as read (151)" write read-state for the 115 findings the person
+     had never seen. Marking something read is a claim that a human looked at it. */
+  const unreadCount = useMemo(() => shown.filter((a) => !read.has(a.key)).length, [shown, read]);
+
   const pinnedKeys = useMemo(() => new Set(pins.map((p) => p.key)), [pins]);
-  const exposure = shown.reduce((s, a) => s + a.excess, 0);
+
+  /* `excess` means a DIFFERENT thing per rule (see 0012): n x (amount - median)
+     for a large charge, month-total - prior-average for a spike, amount x (n-1)
+     for a duplicate. Adding them across kinds produces a quantity that does not
+     exist — and double-counts, since a charge can be flagged large AND duplicate,
+     and a spike's month already contains the charges flagged inside it. So it is
+     shown only when a single kind is selected, where the unit is consistent. */
+  const exposure = kind === "All" ? null : shown.reduce((s, a) => s + a.excess, 0);
 
   const open = (a: Alert) =>
     openDrill({
@@ -81,9 +98,10 @@ export default function AlertsFeed() {
       <p className="page-note">
         {got.alerts ? (
           <>
-            <b>{unreadCount}</b> of {inScope.length} charge{inScope.length === 1 ? "" : "s"} still to review in this
-            view{exposure > 0 && <> · {usd(exposure)} beyond the expected amount</>}. These are prompts to look, not
-            findings of error.
+            <b>{unreadCount}</b> of {shown.length} charge{shown.length === 1 ? "" : "s"} still to review in this
+            view{exposure !== null && exposure > 0 && (
+              <> · {usd(exposure)} beyond the expected amount for {ALERT_LABEL[kind as AlertKind].toLowerCase()}</>
+            )}. These are prompts to look, not findings of error.
           </>
         ) : (
           "Checking Ramp charges against each cardholder’s own history…"
@@ -109,7 +127,7 @@ export default function AlertsFeed() {
             <button
               className="btn btn-secondary btn-sm"
               disabled={!got.alerts || unreadCount === 0}
-              onClick={() => setRead(inScope.filter((a) => !read.has(a.key)).map((a) => a.key), true)}
+              onClick={() => setRead(shown.filter((a) => !read.has(a.key)).map((a) => a.key), true)}
             >
               Mark all as read{unreadCount > 0 ? ` (${unreadCount})` : ""}
             </button>

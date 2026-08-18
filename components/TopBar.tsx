@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSupabaseBrowser } from "@/lib/supabaseBrowser";
 import { monthName } from "@/lib/format";
-import { PARTIAL_MONTH } from "@/lib/pivot";
+import { partialMonth } from "@/lib/pivot";
 import { useWarehouse } from "@/components/WarehouseProvider";
 import Icon from "@/components/Icon";
 import { usePrefs } from "@/components/usePrefs";
@@ -84,7 +84,7 @@ export default function TopBar({
             { value: "All", label: "All months" },
             ...months.map((m) => ({
               value: m,
-              label: `${monthName(m)} ${m.slice(0, 4)}${m === PARTIAL_MONTH ? " (partial)" : ""}`,
+              label: `${monthName(m)} ${m.slice(0, 4)}${m === partialMonth(months) ? " (partial)" : ""}`,
             })),
           ]}
         />

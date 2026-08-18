@@ -27,9 +27,30 @@ export default function LoginForm() {
     }
 
     /* `next` is attacker-influenceable (it comes from the query string), so only
-       same-site absolute paths are honoured — otherwise this is an open redirect. */
+       same-ORIGIN destinations are honoured — otherwise this is an open redirect.
+
+       RESOLVE IT, DO NOT PATTERN-MATCH IT. The previous guard was
+       `raw.startsWith("/") && !raw.startsWith("//")`, which blocks the
+       protocol-relative form and nothing else: "/\evil.com" passes it, and
+       browsers resolve a backslash exactly like a slash, so
+       new URL("/\evil.com", "https://app.example.com") is "https://evil.com/".
+       useSearchParams() percent-decodes, so ?next=/%5Cevil.com reaches it, and
+       Next's router hard-navigates when the origin differs. Since this login
+       page is the app's only boundary, that is a credential-harvest flow: the
+       victim signs in on the genuine page and is thrown to the attacker's.
+
+       Letting the URL parser decide removes the whole class — there is no
+       encoding trick that survives a same-origin comparison of the RESOLVED url.
+       The try/catch matters: new URL("//[", origin) throws, and an uncaught
+       throw here would fire AFTER a successful sign-in and strand the user. */
     const raw = params.get("next") || "/";
-    const next = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/";
+    let next = "/";
+    try {
+      const u = new URL(raw, window.location.origin);
+      if (u.origin === window.location.origin) next = u.pathname + u.search + u.hash;
+    } catch {
+      /* unparseable — fall back to the dashboard root */
+    }
     router.replace(next);
     router.refresh();
   }

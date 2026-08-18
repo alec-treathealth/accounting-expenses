@@ -204,12 +204,19 @@ export default function WarehouseProvider({
      A generation counter separates the two cases: only reload() invalidates. */
   const mounted = useRef(true);
   const generation = useRef(0);
-  useEffect(
-    () => () => {
+  /* RE-ARMED ON MOUNT, not just cleared on unmount. React 18 StrictMode (on via
+     next.config.mjs) simulates an unmount+remount in development while
+     PRESERVING refs, so a cleanup-only effect leaves mounted.current false for
+     the rest of the session — live() then rejects every read that lands and all
+     four pages sit on skeletons forever, with reload() unable to recover because
+     it gates on the same flag. Production is unaffected (the double-invoke is
+     dev-only), which is exactly why it survived: it never showed up in a build. */
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
       mounted.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   const reload = useCallback(() => {
     generation.current += 1;

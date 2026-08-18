@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { usd, usdShort, pct, GROUP_COLOR, GROUP_ORDER, MONTH_LABEL, monthName } from "@/lib/format";
-import { PARTIAL_MONTH, avgPerFullMonth } from "@/lib/pivot";
+import { avgPerFullMonth, partialMonth } from "@/lib/pivot";
 import { costPerBed, splitSpend } from "@/lib/spend";
 import { useDatasets, useWarehouse } from "@/components/WarehouseProvider";
 import { Sk, SkRows, rise } from "@/components/Skeleton";
@@ -220,7 +220,7 @@ export default function Dashboard() {
           <div className="foot">
             {mon === "All"
               ? "Apr–Jul, excludes partial Aug"
-              : mon === PARTIAL_MONTH
+              : mon === partialMonth(months)
                 ? "August is partial — no full month in view"
                 : `${MONTH_LABEL[mon] ?? monthName(mon)} only`}
           </div>

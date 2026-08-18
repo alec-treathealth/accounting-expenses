@@ -178,7 +178,6 @@ must be present before the build.
 | `SUPABASE_SERVICE_ROLE_KEY` | **server, secret** | ingest + mapping writes + `fact_txn` reads (never commit / never expose) |
 | `TXN_DRILLDOWN_ENABLED` | server | must be `"true"` or `/api/txn` serves nothing |
 | `TXN_DRILLDOWN_TOKEN` | **server, secret** | optional shared secret for scripted drill-down reads |
-| `TXN_ALLOW_UNPROTECTED` | server | opt out of requiring a Deployment-Protection cookie (see above) |
 | `ADMIN_API_TOKEN` | **server, secret** | gates the `/api/mapping` write path; unset ⇒ `/admin` is read-only |
 
 ## Database
@@ -217,7 +216,10 @@ Apply the migrations in `supabase/migrations/` in order:
 - The service_role key is used **only** in `app/api/ingest/route.ts` and
   `app/api/txn/route.ts` (both server-only, `runtime = "nodejs"`) and is never
   sent to the browser or committed (`.gitignore` covers `.env*`).
-- The aggregate tables are currently world-readable via the publishable key (a
-  deliberate project decision). Gate behind Supabase Auth if that changes.
+- The aggregate tables are **not** world-readable. `0005_auth_rls.sql` put every
+  one of them behind RLS requiring an authenticated session *and* membership of
+  the `app_access` invite list, checked by the `has_dashboard_access()`
+  SECURITY DEFINER function. The publishable key alone reads nothing;
+  `npm run verify:lockout` asserts that.
 - `fact_txn` is **not** world-readable and must stay that way: no `anon` or
   `authenticated` policy. Transaction detail is served only by `/api/txn`.

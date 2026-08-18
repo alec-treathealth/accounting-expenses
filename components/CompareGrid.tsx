@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   DIM_LABEL,
-  PARTIAL_MONTH,
+  partialMonth,
   cellKey,
   delta,
   pivot,
@@ -79,12 +79,16 @@ export default function CompareGrid({ rows, onCell }: CompareGridProps) {
   /* Delta only means something across time, and only between two FULL months.
      August covers 11 days, so including it would report a ~65% collapse that
      describes the calendar rather than the business. */
+  /* Derived from EVERY month in the source rows, not from the visible columns:
+     under a filter the newest visible column may be a complete month, and
+     calling that one partial would drop a real month out of the delta. */
+  const partial = useMemo(() => partialMonth(rows.map((r) => r.posted_period)), [rows]);
   const deltaCols = useMemo(() => {
     if (colDim !== "month") return null;
-    const full = p.colKeys.filter((k) => k !== PARTIAL_MONTH);
+    const full = p.colKeys.filter((k) => k !== partial);
     if (full.length < 2) return null;
     return { cur: full[full.length - 1], base: full[full.length - 2] };
-  }, [colDim, p.colKeys]);
+  }, [colDim, p.colKeys, partial]);
 
   /* Picking the dimension already on the other axis would be a degenerate
      pivot, so swap the two rather than refusing the choice. */
@@ -150,7 +154,7 @@ export default function CompareGrid({ rows, onCell }: CompareGridProps) {
               { value: "", label: "All" },
               ...thirdOptions.map((v) => ({
                 value: v,
-                label: third === "month" ? `${monthName(v)}${v === PARTIAL_MONTH ? " (partial)" : ""}` : v,
+                label: third === "month" ? `${monthName(v)}${v === partial ? " (partial)" : ""}` : v,
               })),
             ]}
           />
@@ -185,7 +189,8 @@ export default function CompareGrid({ rows, onCell }: CompareGridProps) {
                 <th scope="col" className="num">Total</th>
                 {deltaCols && (
                   <th scope="col" className="num">
-                    {MONTH_LABEL[deltaCols.cur]} vs {MONTH_LABEL[deltaCols.base]}
+                    {MONTH_LABEL[deltaCols.cur] ?? monthName(deltaCols.cur)} vs{" "}
+                    {MONTH_LABEL[deltaCols.base] ?? monthName(deltaCols.base)}
                   </th>
                 )}
               </tr>
