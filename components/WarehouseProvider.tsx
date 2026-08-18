@@ -58,6 +58,8 @@ export type FAC = {
   in_scope: boolean;
   in_export: boolean;
   note: string | null;
+  /** Licensed bed capacity. NULL means no bed count is on file — see 0014. */
+  beds: number | null;
 };
 
 export type DatasetKey = "gm" | "dim" | "alerts" | "aa" | "av" | "ramp" | "rampVendor";

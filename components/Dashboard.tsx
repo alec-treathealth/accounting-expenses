@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { usd, usdShort, pct, GROUP_COLOR, GROUP_ORDER, MONTH_LABEL, monthName } from "@/lib/format";
 import { PARTIAL_MONTH, avgPerFullMonth } from "@/lib/pivot";
+import { costPerBed, splitSpend } from "@/lib/spend";
 import { useDatasets, useWarehouse } from "@/components/WarehouseProvider";
 import { Sk, SkRows, rise } from "@/components/Skeleton";
 
@@ -39,7 +40,22 @@ export default function Dashboard() {
     [gm, fac, mon],
   );
 
-  const total = rows.reduce((s, r) => s + r.amount, 0);
+  /* ONE helper behind both spend cards and the Cost per Bed numerator, so the
+     three cannot disagree. `split.all` is the figure this dashboard has always
+     reported; `split.operating` is that figure with Cost of Goods Sold taken
+     out. Shares elsewhere on the page still divide by `split.all` — dividing a
+     group by the operating figure would put COGS above 100%. */
+  const split = useMemo(() => splitSpend(rows), [rows]);
+  const total = split.all;
+
+  /* Cost per LICENSED BED. Scoped by the same `rows` as everything else, so it
+     honours the facility and month pickers for free. dim_facility carries the
+     capacity; facilities with no bed count on file are named on the card rather
+     than being folded in as a zero. */
+  const perBed = useMemo(
+    () => costPerBed(rows, data.dim, (f) => fac === "All" || f === fac),
+    [rows, data.dim, fac],
+  );
 
   const byGroup = useMemo(() => {
     const m: Record<string, number> = {};
@@ -116,9 +132,14 @@ export default function Dashboard() {
       )}
 
       <div className="grid kpis">
+        {/* The full figure keeps the drill-down, because it is the one that ties
+            to aggFor() exactly. Operating Expenses is a subset of it and the
+            drawer can only filter ONE kpi_group, so offering it a "view
+            transactions" link would open a set that does not sum to the number
+            printed above it. */}
         <div className="card kpi ths-rise" style={rise(0)}>
-          <div className="lab">Total spend</div>
-          <div className="val">{got.gm ? usd(total) : <Sk className="sk-kpi" />}</div>
+          <div className="lab">COGS + Expenses</div>
+          <div className="val">{got.gm ? usd(split.all) : <Sk className="sk-kpi" />}</div>
           <div className="foot">
             {mon === "All" ? "Apr–Aug 2026 (Aug partial)" : `${MONTH_LABEL[mon] ?? monthName(mon)} 2026`}
           </div>
@@ -126,7 +147,7 @@ export default function Dashboard() {
             {fac === "All" && mon === "All" ? (
               "Filter by facility or month to drill down"
             ) : (
-              <button className="dd-link" onClick={() => openAgg(scope(), "Total spend")}>
+              <button className="dd-link" onClick={() => openAgg(scope(), "COGS + Expenses")}>
                 View transactions
               </button>
             )}
@@ -134,6 +155,46 @@ export default function Dashboard() {
         </div>
 
         <div className="card kpi ths-rise" style={rise(1)}>
+          <div className="lab">Operating Expenses</div>
+          <div className="val">{got.gm ? usd(split.operating) : <Sk className="sk-kpi" />}</div>
+          <div className="foot">
+            {got.gm
+              ? `Excludes ${usd(split.cogs)} cost of goods sold`
+              : " "}
+          </div>
+          <div className="dd-hint">
+            {got.gm ? `${pct((split.operating / (total || 1)))} of all spend in this view` : " "}
+          </div>
+        </div>
+
+        <div className="card kpi ths-rise" style={rise(2)}>
+          <div className="lab">Cost per bed</div>
+          <div className="val">
+            {!got.gm || !got.dim ? (
+              <Sk className="sk-kpi" />
+            ) : perBed.perBed === null ? (
+              "No bed count on file"
+            ) : (
+              usd(perBed.perBed)
+            )}
+          </div>
+          <div className="foot">
+            {!got.gm || !got.dim
+              ? " "
+              : perBed.perBed === null
+                ? "No facility in this view has a licensed capacity recorded"
+                : `Cumulative over ${
+                    mon === "All" ? "Apr–Aug 2026 (Aug partial)" : `${MONTH_LABEL[mon] ?? monthName(mon)} 2026`
+                  } · ${perBed.beds} beds, ${perBed.counted.length} ${
+                    perBed.counted.length === 1 ? "facility" : "facilities"
+                  }`}
+          </div>
+          {/* Licensed capacity, never occupancy — there is no census in this
+              database, so this must not be read as cost per client. */}
+          <div className="dd-hint">Per licensed bed — not per client</div>
+        </div>
+
+        <div className="card kpi ths-rise" style={rise(3)}>
           <div className="lab">Largest group</div>
           <div className="val">{got.gm ? usd(big[1] as number) : <Sk className="sk-kpi" />}</div>
           <div className="foot">{got.gm ? `${big[0]} · ${pct((big[1] as number) / (total || 1))}` : " "}</div>
@@ -151,7 +212,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="card kpi ths-rise" style={rise(2)}>
+        <div className="card kpi ths-rise" style={rise(4)}>
           <div className="lab">Avg / full month</div>
           <div className="val">
             {!got.gm ? <Sk className="sk-kpi" /> : avgFull === null ? "—" : usd(avgFull)}
@@ -165,6 +226,26 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Cost per bed's two disclosure states. A facility on either list is
+          absent from the ratio ON PURPOSE, and naming it is the difference
+          between a caveat and a silently wrong denominator. */}
+      {got.gm && got.dim && (perBed.spendWithoutBeds.length > 0 || perBed.bedsWithoutSpend.length > 0) && (
+        <p className="fine">
+          {perBed.spendWithoutBeds.length > 0 && (
+            <>
+              <b>No bed count on file:</b> {perBed.spendWithoutBeds.join(", ")} — their spend is in every
+              figure above except Cost per bed, which cannot divide by a capacity it does not have.{" "}
+            </>
+          )}
+          {perBed.bedsWithoutSpend.length > 0 && (
+            <>
+              <b>Beds but no spend in this view:</b> {perBed.bedsWithoutSpend.join(", ")} — counted as
+              neither spend nor capacity, rather than as a facility that spent $0.
+            </>
+          )}
+        </p>
+      )}
 
       <section className="two">
         <div className="card">

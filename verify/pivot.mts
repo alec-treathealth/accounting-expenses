@@ -61,7 +61,13 @@ const GRAND = r2(rows.reduce((s, r) => s + r.amount, 0));
 const GRAND_N = rows.reduce((s, r) => s + r.n, 0);
 
 console.log(`source rows: ${rows.length}, grand $${GRAND.toFixed(2)}, n=${GRAND_N}\n`);
-ok(GRAND.toFixed(2) === "22851611.16", "source ties to the known grand total", "$" + GRAND.toFixed(2));
+/* A deliberate tripwire: it fails whenever the warehouse total moves, so a
+   change has to be confirmed rather than absorbed. Update it ONLY alongside an
+   approved ingest, and say in the commit what moved.
+     19,709,887.26  original 14-facility scope
+     22,851,611.16  + California Treatment Collective and Dallas Mental Health
+     23,209,169.29  + Red Rock Behavioral Health and the Aug 18 2026 export */
+ok(GRAND.toFixed(2) === "23209169.29", "source ties to the known grand total", "$" + GRAND.toFixed(2));
 
 const PAIRS: [Dim, Dim][] = [
   ["facility", "month"],

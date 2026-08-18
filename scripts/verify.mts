@@ -44,8 +44,21 @@ const r = ingestCsv(readFileSync(path, "utf8"));
 const sum = (a: number[]) => a.reduce((s, x) => s + x, 0);
 console.log("fact rows        :", r.factRows.length);
 console.log("total            : $" + r.total.toFixed(2));
-console.log("EXPECTED total   : $19709887.26");
-console.log("MATCH            :", r.total.toFixed(2) === "19709887.26" ? "YES ✅" : "NO ❌");
+/* Keyed by total rather than by filename, because the same export gets renamed
+   on the way out of QuickBooks. A file that parses to none of these has either
+   changed upstream or hit a classification regression — both worth stopping for.
+
+   19,709,887.26  original 14-facility scope
+   22,851,611.16  + California Treatment Collective and Dallas Mental Health
+   23,108,706.41  + Red Rock Behavioral Health, Apr 1 – Aug 18 2026 export */
+const KNOWN_TOTALS: Record<string, string> = {
+  "19709887.26": "original 14-facility scope",
+  "22851611.16": "Apr 1 – Aug 11 2026 export (+ CTC, Dallas)",
+  "23108706.41": "Apr 1 – Aug 18 2026 export (+ Red Rock)",
+  "23088675.19": "Apr 1 – Aug 11 2026 backfill export, re-parsed with Red Rock mapped",
+};
+const known = KNOWN_TOTALS[r.total.toFixed(2)];
+console.log("MATCH            :", known ? `YES ✅ — ${known}` : "NO ❌ — matches no known export");
 console.log("aggGroupMonth    :", r.aggGroupMonth.length, "rows, sum $" + sum(r.aggGroupMonth.map((x) => x.amount)).toFixed(2));
 console.log("aggAccount       :", r.aggAccount.length, "rows, sum $" + sum(r.aggAccount.map((x) => x.amount)).toFixed(2));
 console.log("aggVendor        :", r.aggVendor.length, "rows");

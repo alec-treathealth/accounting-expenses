@@ -59,10 +59,27 @@ const csvPath = findCsv();
 const ing = ingestCsv(readFileSync(csvPath, "utf8"));
 console.log("source            :", csvPath);
 console.log("fixture fact rows :", ing.factRows.length, "totalling $" + ing.total.toFixed(2));
-/* Grand total for the Apr 1 – Aug 11 2026 export. Rose from 19,709,887.26 when
-   California Treatment Collective and Dallas Mental Health were brought into
-   the FACILITY map — 3,170 further rows that had been parsed and dropped. */
-ok(ing.total.toFixed(2) === "22851611.16", "fixture ties out to the grand total", "$" + ing.total.toFixed(2));
+/* This is the total OF THE CSV FIXTURE, which is no longer the same as the
+   warehouse total, and the difference is not an error:
+
+     23,108,706.41  what the Aug 18 2026 export parses to
+     23,209,169.29  what fact_txn holds
+
+   St. Louis Mental Health is absent from the newer export but its $98,662.71
+   remains in fact_txn, because ingest reports rows it cannot find rather than
+   deleting them. The warehouse is the union of every export ever loaded; a
+   single file is not.
+
+   Two exports now sit beside the repo, so findCsv() picks by directory order.
+   Pass the file explicitly to compare against a known figure:
+     npm run verify:drilldown -- "/path/to/...by account (1).csv" */
+const FIXTURE_TOTALS: Record<string, string> = {
+  "23108706.41": "Apr 1 – Aug 18 2026 export (adds Red Rock Behavioral Health)",
+  "22851611.16": "Apr 1 – Aug 11 2026 backfill export",
+};
+const known = FIXTURE_TOTALS[ing.total.toFixed(2)];
+ok(known !== undefined, "fixture ties out to a known export total",
+   known ? `$${ing.total.toFixed(2)} — ${known}` : `$${ing.total.toFixed(2)} matches no known export`);
 
 // --- 2. in-memory PostgREST stand-in ---------------------------------------
 // Implements only what lib/txnQuery.ts uses: select(count/head), eq, or, order,

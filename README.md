@@ -9,6 +9,17 @@ Vercel + Supabase. Drag-and-drop a new export to update the data.
 - Reads pre-aggregated spend from Supabase (`agg_group_month`, `agg_account`,
   `agg_vendor`, `dim_facility`) with the **publishable** key and renders spend by
   KPI group, by facility, a monthly trend, top vendors, and a data-quality panel.
+- **Spend KPIs**: *COGS + Expenses* (everything, and the figure that ties to
+  `fact_txn`) and *Operating Expenses* (the same figure less Cost of Goods Sold),
+  plus *Cost per bed* — cumulative spend over the selected range divided by
+  licensed capacity. Cost per bed is per **BED, not per client**: there is no
+  census or occupancy anywhere in this database. All three come from one helper,
+  `lib/spend.ts`, so they cannot disagree.
+- **Card Spend** (`/intelligence`) ranks Ramp charges by cardholder. Six shared
+  exec/admin cards are hidden from that breakdown ONLY — they buy across many
+  entities, so a per-cardholder view misattributes them. The filter is applied at
+  the warehouse read (`EXCLUDED_RAMP_CARDHOLDERS` in `lib/ramp.ts`); no stored row
+  changes and their spend stays in every other view under their own names.
 - **Drag-and-drop ingest**: drop the QuickBooks CSV → it's parsed, classified and
   aggregated *in your browser* → the transaction rows are POSTed to `/api/ingest`
   → the server appends **only new** rows and rebuilds the aggregates.
@@ -48,8 +59,14 @@ comment of `app/api/mapping/route.ts` before relying on it.
 
 ## Scope & method (important)
 
-- **14 RES facilities only.** Management, real-estate, billing and marketing
-  entities in the export are excluded.
+- **RES facilities only.** Management, real-estate, billing and marketing
+  entities in the export are excluded. `dim_facility` is the roster (18 rows);
+  `lib/classify.ts` `FACILITY` is what actually admits a row to `fact_txn`. **Both
+  are needed and they must agree** — a facility missing from `FACILITY` has every
+  one of its rows parsed and then silently dropped, and no reconciliation
+  notices, because the dropped rows are absent from both sides of the tie-out.
+  That is exactly how Red Rock Behavioral Health sat at $0 while being fully
+  present in the source (see `0013`).
 - **Mapped by account name, not number.** Account numbers collide across the
   80+ entities in the consolidated file (e.g. `7040` is "Payroll Taxes" in some
   and "Income from Capital One" in others), so classification keys off the
@@ -131,7 +148,9 @@ for this PR.
 npm install
 cp .env.example .env.local   # fill in the values
 npm run dev
-npm run verify:parser        # proves the TS parser ties out to $19,709,887.26
+npm run verify:parser        # parser total matches a known export (scripts/verify.mts)
+npm run verify:spend         # the two spend cards + Cost per Bed, against live data
+npm run verify:ramp          # Ramp by cardholder, incl. the excluded shared cards
 ```
 
 ## Environment variables
@@ -161,6 +180,21 @@ Apply the migrations in `supabase/migrations/` in order:
 - `0003_rebuild_from_map.sql` — makes `map_account_group` authoritative for
   `kpi_group` (previously the rebuild read the group off the fact row, so editing
   the taxonomy did nothing).
+- `0013_dim_facility_red_rock.sql` — adds Red Rock Behavioral Health to the
+  roster. Pair it with the `FACILITY` entry in `lib/classify.ts` or it does
+  nothing.
+- `0014_dim_facility_beds.sql` — `dim_facility.beds`, licensed capacity for the
+  Cost per Bed KPI. **Nullable, and the NULL means something**: no bed count on
+  file. Readers must disclose such a facility, never treat it as zero.
+
+### `rebuild_aggregates()` cannot be called through PostgREST
+
+The `authenticator` role preloads `safeupdate`, so the function's unqualified
+`delete from agg_…` statements fail with *"DELETE requires a WHERE clause"*. That
+is the path `/api/ingest` phase `finalize` uses, so **the drag-and-drop upload
+appends rows but cannot rebuild the aggregates**. It surfaces as a 500, not
+silently, but the aggregates are left stale until a rebuild runs on a direct
+connection. Adding `where true` to each delete would fix it.
 
 ## Security notes
 

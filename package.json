@@ -15,6 +15,7 @@
     "verify:lockout": "tsx verify/anon-lockout.mts",
     "verify:pivot": "tsx verify/pivot.mts",
     "verify:ramp": "tsx verify/ramp.mts",
+    "verify:spend": "tsx verify/spend.mts",
     "verify:alerts": "tsx verify/alerts.mts"
   },
   "dependencies": {
