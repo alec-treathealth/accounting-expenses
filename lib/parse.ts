@@ -162,6 +162,8 @@ export function ingestCsv(text: string): IngestResult {
   }
 
   const anomalies: string[] = [];
+  /** Transaction rows seen outside a company > account section. */
+  const stray = { n: 0, amount: 0 };
   const stack: string[] = [];
   const facts: FactRow[] = [];
   const occ = new Map<string, number>();
@@ -197,6 +199,20 @@ export function ingestCsv(text: string): IngestResult {
     const curCo = stack[0];
     const curAcct = stack[1];
 
+    /* A transaction that is not inside a company > account section cannot be
+       filed, and dropping it quietly is the exact failure this whole parser
+       change exists to remove. The three reasons to skip a row are NOT equal:
+       "this company is out of scope" and "this account is not an expense" are
+       decisions, but "this row had no enclosing account" is a structural
+       surprise, and it gets recorded. The real export has 7 today, all voided
+       and $0.00, so the amount is carried in the message rather than assumed
+       harmless — a non-zero one means money went missing. */
+    if (row.length >= 8 && DATE.test((row[1] || "").trim()) && !(curCo && curAcct)) {
+      stray.n++;
+      stray.amount += money(row[7] || "") ?? 0;
+      continue;
+    }
+
     if (row.length >= 8 && DATE.test((row[1] || "").trim()) && curAcct && curCo && FACILITY[curCo]) {
       const { kind, group } = classify(curAcct);
       if (!kind) continue;
@@ -222,6 +238,19 @@ export function ingestCsv(text: string): IngestResult {
 
   if (stack.length) {
     anomalies.push(`unclosed at end of file: ${stack.join(" > ")}`);
+  }
+  /* Only when MONEY is at stake. Both real exports carry exactly 7 such rows —
+     voided bill payments inside QuickBooks' unnamed "--" section — and they are
+     all $0.00. Raising on those would block every legitimate upload, and a
+     banner that fires on every correct file teaches people to click past the one
+     that matters. A non-zero total means rows carrying real money had nowhere to
+     be filed, which is the case worth stopping for. */
+  const strayAmount = Math.round(stray.amount * 100) / 100;
+  if (stray.n && strayAmount !== 0) {
+    anomalies.push(
+      `${stray.n} transaction row(s) outside a company > account section, ` +
+        `totalling ${strayAmount.toFixed(2)} — money with nowhere to be filed`,
+    );
   }
 
   const gm = new Map<string, [number, number]>();

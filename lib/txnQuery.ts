@@ -396,26 +396,61 @@ export async function fetchTxnPage(db: TxnDb, f: TxnFilters): Promise<TxnPage> {
 const ALLOW_TTL_MS = 5 * 60 * 1000;
 let allowCache: { at: number; value: Allowlists } | null = null;
 
+/**
+ * Read an entire column, in pages, into a Set.
+ *
+ * `.range(0, 4999)` DOES NOT read 5,000 rows. PostgREST caps every response at
+ * db-max-rows — 1000 on this project — and it applies to the SERVICE ROLE too,
+ * silently: no error, no flag, just a short array. agg_vendor holds 4,791 rows
+ * covering 2,673 distinct vendors, so the allowlist built from one unpaged read
+ * contained 808 of them and every drill-down on the other 1,865 was rejected as
+ * `bad_vendor` — including GUSTO NET, Franchise Tax Board and GUSTO TAX, three
+ * of the ten largest vendors in the company.
+ *
+ * STEP BY WHAT CAME BACK AND STOP ONLY ON AN EMPTY PAGE, matching restAll() in
+ * verify/supabase.mts. Treating "fewer rows than I asked for" as the end is the
+ * exact assumption that produced the truncation in the first place, and it would
+ * silently return again if db-max-rows were ever lowered.
+ *
+ * ORDER IS LOAD-BEARING. Without a total order Postgres may return rows in any
+ * order per request, so page 2 can repeat or omit rows from page 1.
+ */
+async function readColumn(db: TxnDb, table: string, column: string): Promise<string[]> {
+  const PAGE = 1000;
+  /** Guard against an unbounded loop if a page ever repeats rather than advances. */
+  const HARD_CAP = 200_000;
+  const out: string[] = [];
+  for (let from = 0; from < HARD_CAP; ) {
+    const res = await db.from(table).select(column).order(column, { ascending: true }).range(from, from + PAGE - 1);
+    if (res.error) throw new TxnQueryError(res.error.message);
+    const rows = res.data || [];
+    if (!rows.length) break;
+    for (const r of rows) out.push(String((r as Record<string, unknown>)[column]));
+    from += rows.length;
+  }
+  return out;
+}
+
 export async function loadAllowlists(db: TxnDb, now = Date.now()): Promise<Allowlists> {
   if (allowCache && now - allowCache.at < ALLOW_TTL_MS) return allowCache.value;
 
   const [facs, accts, vends, people] = await Promise.all([
-    db.from("dim_facility").select("facility").range(0, 999),
-    db.from("agg_account").select("account_label").range(0, 4999),
-    db.from("agg_vendor").select("vendor").range(0, 4999),
-    // 1,493 rows with ~90 distinct values; the Set dedupes. Reading the
-    // aggregate rather than fact_txn keeps this a cheap indexed scan and means
-    // the allowlist is exactly the set of people the UI can offer.
-    db.from("agg_ramp_person").select("person").range(0, 4999),
+    readColumn(db, "dim_facility", "facility"),
+    readColumn(db, "agg_account", "account_label"),
+    readColumn(db, "agg_vendor", "vendor"),
+    // The Set dedupes: agg_ramp_person is one row per (facility, month, person,
+    // group), so ~1,700 rows collapse to ~100 people. Reading the aggregate
+    // rather than fact_txn keeps this a cheap indexed scan and means the
+    // allowlist is exactly the set of people the UI can offer.
+    readColumn(db, "agg_ramp_person", "person"),
   ]);
-  for (const r of [facs, accts, vends, people]) if (r.error) throw new TxnQueryError(r.error.message);
 
   const value: Allowlists = {
-    facilities: new Set((facs.data || []).map((r) => String(r.facility))),
+    facilities: new Set(facs),
     groups: new Set(KPI_GROUPS),
-    accounts: new Set((accts.data || []).map((r) => String(r.account_label))),
-    vendors: new Set([...(vends.data || []).map((r) => String(r.vendor)), NO_PAYEE]),
-    people: new Set((people.data || []).map((r) => String(r.person))),
+    accounts: new Set(accts),
+    vendors: new Set([...vends, NO_PAYEE]),
+    people: new Set(people),
   };
   allowCache = { at: now, value };
   return value;

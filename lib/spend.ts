@@ -121,12 +121,19 @@ export function costPerBed(
   let amount = 0;
   let bedTotal = 0;
 
+  /* ONE RULE FOR "NO SPEND". A facility can have no rows at all, or rows that
+     net to exactly zero (a reversal inside the filtered window). Those are the
+     same fact and must be treated the same way: counting the second kind would
+     add its beds to the denominator and nothing to the numerator, quietly
+     diluting the ratio for every other facility. Both now fall through to the
+     bedsWithoutSpend disclosure below. */
   for (const [facility, amt] of spend) {
+    if (amt === 0) continue;
     if (beds.has(facility)) {
       counted.push(facility);
       amount += amt;
       bedTotal += beds.get(facility)!;
-    } else if (amt !== 0) {
+    } else {
       spendWithoutBeds.push(facility);
     }
   }
@@ -136,7 +143,7 @@ export function costPerBed(
      capacity that reported nothing and quietly understate every other facility. */
   const bedsWithoutSpend: string[] = [];
   for (const facility of beds.keys()) {
-    if (spend.has(facility)) continue;
+    if ((spend.get(facility) ?? 0) !== 0) continue; // genuinely spent something
     if (inView && !inView(facility)) continue;
     bedsWithoutSpend.push(facility);
   }

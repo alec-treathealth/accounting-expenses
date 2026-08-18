@@ -11,7 +11,7 @@ import {
 } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseBrowser";
 import { parseAlert, parsePin, type Alert, type Pin } from "@/lib/alerts";
-import { excludeRampCardholders, type RampPersonRow, type RampVendorRow } from "@/lib/ramp";
+import { excludeRampCardholders, onlyExcludedRampCardholders, type RampPersonRow, type RampVendorRow } from "@/lib/ramp";
 import type { DrillContext, DrillFilters } from "@/components/TxnDrawer";
 
 /* ---------------------------------------------------------------------------
@@ -116,6 +116,14 @@ type Ctx = {
   scope: () => DrillFilters;
   /** The agg_group_month figure for a filter, so a drawer can reconcile to it. */
   aggFor: (f: DrillFilters) => { amount: number; n: number };
+
+  /* What the shared exec/admin card filter removed, as a TOTAL and never as
+     rows. A scalar cannot be accidentally summed into a figure or rendered as a
+     cardholder; it exists only so the Card Spend page can disclose the size of
+     what it is not showing, which is what makes its own total reconcilable
+     against agg_ramp_person. Unscoped by facility/month on purpose: it is a
+     property of the filter, not of the current view. */
+  rampWithheld: { amount: number; n: number; people: number };
 };
 
 const WarehouseCtx = createContext<Ctx | null>(null);
@@ -161,6 +169,7 @@ export default function WarehouseProvider({
      is in flight. */
   const [read, setReadState] = useState<Set<string>>(() => new Set());
   const [pins, setPins] = useState<Pin[]>([]);
+  const [rampWithheld, setRampWithheld] = useState({ amount: 0, n: 0, people: 0 });
 
   /* Requested-set in a ref, tick in state. The ref is the source of truth (so a
      second request for the same dataset is a no-op with no render), and the tick
@@ -263,9 +272,22 @@ export default function WarehouseProvider({
           if (error) return fail(key)(error);
           const batch = (rows ?? []) as any[];
           acc.push(...batch);
-          // Stop on a short page, or at the caller's ceiling — `limit` is now a
-          // sanity bound on runaway growth, not a value handed to PostgREST.
-          if (batch.length === PAGE && acc.length < limit) return step(from + PAGE);
+          /* STEP BY WHAT CAME BACK, AND STOP ONLY ON AN EMPTY PAGE — the same
+             rule as restAll() in verify/supabase.mts. Stopping on a SHORT page
+             re-introduces exactly the bug being fixed: it assumes the server
+             gives you as many rows as you asked for, which is the assumption
+             db-max-rows violates. If that cap were ever lowered below PAGE,
+             a short-page test would silently truncate again. */
+          if (batch.length && acc.length < limit) return step(from + batch.length);
+          /* The ceiling is a runaway guard, not a quota. Reaching it means the
+             table outgrew what this screen was designed to hold, and landing a
+             truncated dataset silently is the failure mode this whole change
+             exists to remove — so it is an error, not a partial render. */
+          if (batch.length && acc.length >= limit) {
+            return fail(key)(new Error(
+              `${name} exceeded the ${limit}-row ceiling for a browser read; it needs a server-side aggregate.`,
+            ));
+          }
           const mapped = acc.map(map) as Data[K];
           land(key, refine ? refine(mapped) : mapped);
         }, fail(key));
@@ -282,9 +304,11 @@ export default function WarehouseProvider({
       aa: () => table("aa", "agg_account", 20000, (r) => ({ ...r, amount: num(r.amount) }), undefined, ["account_label"]),
       av: () => table("av", "agg_vendor", 50000, (r) => ({ ...r, amount: num(r.amount) }), undefined, ["facility", "vendor", "kpi_group"]),
       /* The two Ramp datasets are filtered HERE, at the read, and nowhere else.
-         Both feed only the Card Spend tab, so this is the one place that can
-         drop the shared exec/admin cards without touching a stored row or any
-         other view. Filtering per-consumer instead would let the cardholder
+         agg_ramp_vendor feeds only the Card Spend tab. agg_ramp_person also
+         reaches AppShell's drill-down, whose cardholder set decides whether a
+         description renders as a link on EVERY tab — correct fall-out, since a
+         link to a person this tab will not show would be a dead end, but worth
+         knowing before relying on "only that tab". Nothing else reads either. Filtering per-consumer instead would let the cardholder
          list and the merchant drilldown disagree; filtering the warehouse
          tables would remove real spend from the Dashboard. See
          EXCLUDED_RAMP_CARDHOLDERS in lib/ramp.ts for why these six.
@@ -293,7 +317,17 @@ export default function WarehouseProvider({
          the shared helper so agg_ramp_person and agg_ramp_vendor cannot drift. */
       ramp: () => table("ramp", "agg_ramp_person", 50000, (r) => ({
         ...r, posted_period: String(r.posted_period).slice(0, 7), amount: num(r.amount),
-      }), excludeRampCardholders, ["facility", "posted_period", "person", "kpi_group"]),
+      }), (rows) => {
+        // Tally what is being dropped, here, where both sides are in hand — the
+        // only place the two can be guaranteed to describe the same read.
+        const dropped = onlyExcludedRampCardholders(rows);
+        setRampWithheld({
+          amount: Math.round(dropped.reduce((s, r) => s + r.amount, 0) * 100) / 100,
+          n: dropped.reduce((s, r) => s + Number(r.n), 0),
+          people: new Set(dropped.map((r) => r.person)).size,
+        });
+        return excludeRampCardholders(rows);
+      }, ["facility", "posted_period", "person", "kpi_group"]),
       rampVendor: () => table("rampVendor", "agg_ramp_vendor", 50000, (r) => ({
         ...r, amount: num(r.amount), n: num(r.n), rk: num(r.rk),
       }), excludeRampCardholders, ["facility", "person", "vendor"]),
@@ -456,10 +490,10 @@ export default function WarehouseProvider({
       facilities, months,
       rosterCount: inScope.length || facilities.length,
       read, pins, setRead, setPinned,
-      openDrill, focusPerson, setFocusPerson, scope, aggFor,
+      openDrill, focusPerson, setFocusPerson, scope, aggFor, rampWithheld,
     }),
     [data, got, loadError, request, reload, facility, month, facilities, months, inScope.length,
-     read, pins, setRead, setPinned, openDrill, focusPerson, scope, aggFor],
+     read, pins, setRead, setPinned, openDrill, focusPerson, scope, aggFor, rampWithheld],
   );
 
   return (

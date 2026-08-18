@@ -24,6 +24,14 @@ if (!url || !key) {
 const sb = createClient(url, key, { auth: { persistSession: false } });
 
 const r = ingestCsv(readFileSync(CSV, "utf8"));
+/* This path has NO preview and NO confirm step -- it writes straight to
+   fact_txn. It is therefore the one that most needs the structural check the
+   upload dialog performs, not the one that can skip it. */
+if (r.anomalies.length) {
+  console.error(`REFUSING: ${r.anomalies.length} structural anomaly(ies) in ${CSV}`);
+  for (const a of r.anomalies) console.error("  ! " + a);
+  process.exit(1);
+}
 console.log(`parsed ${r.factRows.length} fact rows, total ${r.total.toFixed(2)}`);
 
 const CHUNK = 500;

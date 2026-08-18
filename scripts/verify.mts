@@ -68,6 +68,16 @@ console.log("aggAccount       :", r.aggAccount.length, "rows, sum $" + sum(r.agg
 console.log("aggVendor        :", r.aggVendor.length, "rows");
 console.log("months           :", r.monthsPresent.join(", "));
 console.log("facilities        :", r.facilitiesPresent.length, "->", r.facilitiesPresent.join(", "));
+/* Structural anomalies are the whole point of the section-stack parser: a file
+   that parses to a plausible total while being mis-nested is the failure this
+   script exists to catch. Printing them is not enough -- a non-zero exit is what
+   makes CI and a human notice. */
+if (r.anomalies.length) {
+  console.log("\nSTRUCTURAL ANOMALIES (this file must NOT be ingested):");
+  for (const a of r.anomalies) console.log("  ! " + a);
+  process.exit(1);
+}
+console.log("anomalies        : none");
 console.log("max occurrence idx:", Math.max(...r.factRows.map((f) => f.occurrence)), "(0 = no identical repeats)");
 // idempotency proof: re-run identity set must be stable
 const keys = new Set(r.factRows.map((f) => f.row_key + ":" + f.occurrence));

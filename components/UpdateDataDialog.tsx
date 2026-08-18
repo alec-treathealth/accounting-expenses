@@ -30,6 +30,13 @@ const QBO_REPORT_URL =
 
 const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/* Facilities KNOWN to be absent from the current export and carried forward
+   deliberately (see migration 0017). Warning about these on every upload would
+   fire the banner every single time, which teaches people to click past it —
+   and then it is not there when a facility goes missing for a reason nobody
+   chose. Remove an entry the moment it reappears upstream. */
+const CARRIED_FORWARD = new Set(["St. Louis Mental Health"]);
+
 type Phase = "idle" | "parsing" | "ready" | "uploading" | "rebuilding" | "done";
 
 export default function UpdateDataDialog({ onClose }: { onClose: () => void }) {
@@ -47,7 +54,9 @@ export default function UpdateDataDialog({ onClose }: { onClose: () => void }) {
   const missingFacilities = useMemo(() => {
     if (!parsed) return [];
     const present = new Set(parsed.facilitiesPresent);
-    return [...new Set(Object.values(FACILITY))].filter((f) => !present.has(f)).sort();
+    return [...new Set(Object.values(FACILITY))]
+      .filter((f) => !present.has(f) && !CARRIED_FORWARD.has(f))
+      .sort();
   }, [parsed]);
   const [result, setResult] = useState<{ inserted: number; total: number; orphans_count?: number } | null>(null);
 

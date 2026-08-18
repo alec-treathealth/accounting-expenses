@@ -84,6 +84,11 @@ export function excludeRampCardholders<T extends { person: string }>(rows: T[]):
   return rows.filter((r) => !EXCLUDED_SET.has(r.person));
 }
 
+/** The complement of the above: only the shared exec/admin cards' rows. */
+export function onlyExcludedRampCardholders<T extends { person: string }>(rows: T[]): T[] {
+  return rows.filter((r) => EXCLUDED_SET.has(r.person));
+}
+
 /** agg_ramp_vendor keeps this many merchants per facility-and-person. */
 export const VENDOR_TOP_N = 12;
 

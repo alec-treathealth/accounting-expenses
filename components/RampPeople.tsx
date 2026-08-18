@@ -25,7 +25,7 @@ const MAX_COMPARE = 4;
 
 export default function RampPeople() {
   useDatasets(["ramp", "rampVendor"]);
-  const { data, got, facility, month, focusPerson, setFocusPerson } = useWarehouse();
+  const { data, got, facility, month, focusPerson, setFocusPerson, rampWithheld } = useWarehouse();
   const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState("");
 
@@ -67,6 +67,10 @@ export default function RampPeople() {
     return q ? people.filter((p) => p.person.toLowerCase().includes(q)) : people;
   }, [people, query]);
 
+  /** True when nothing is filtered, i.e. when the page total and the company-wide
+   *  withheld figure describe the same population and may be added. */
+  const unfiltered = facility === "All" && month === "All";
+
   const max = Math.max(...people.map((p) => Math.abs(p.amount)), 1);
   const atCap = selected.length >= MAX_COMPARE;
 
@@ -98,13 +102,44 @@ export default function RampPeople() {
         <b>This is a slice of the Dashboard&rsquo;s total, not an addition to it.</b>
       </p>
 
-      {/* Every figure on this tab — the line above, the ranked list, the shares,
-          the per-person panels — is computed from the same filtered rows, so
-          this note explains all of them at once rather than being repeated. */}
+      {/* THE WITHHELD FIGURE IS NAMED, not just the fact of withholding. These
+          six cards are about half of all Ramp spend, so "excluded from the
+          cardholder breakdown" read as though it applied to the LIST while the
+          headline total above still covered everything. It does not: every
+          figure on this tab is computed from the filtered rows. Printing the
+          amount is what lets anyone add the two together and reconcile this
+          page against agg_ramp_person, instead of finding a gap they cannot
+          explain. */}
       <p className="fine">
-        Shared exec/admin cards are excluded from the cardholder breakdown, because they buy across
-        many entities and a per-cardholder view misattributes them. Their spend is included in all
-        other expense views, under their own names.
+        <b>Every figure on this page excludes six shared exec/admin cards</b> — the totals and shares
+        above as well as the list below. They buy across many entities at once, so attributing their
+        spend to one cardholder misreads it.
+        {got.ramp && rampWithheld.amount > 0 && (
+          <>
+            {" "}
+            {/* The withheld figure is company-wide, while the total above honours
+                the facility/month pickers. Adding the two is only arithmetic when
+                nothing is filtered — under a filter they describe different
+                populations, and printing a sum of them would be precisely the
+                mismatched-scope error this page is careful about elsewhere. */}
+            {unfiltered ? (
+              <>
+                Withheld: <b>{usd(rampWithheld.amount)}</b> over {rampWithheld.n.toLocaleString()}{" "}
+                charges on {rampWithheld.people} cards, so all Ramp spend is{" "}
+                {usd(Math.round((rampTotal.amount + rampWithheld.amount) * 100) / 100)} before this
+                page&rsquo;s filter.
+              </>
+            ) : (
+              <>
+                Withheld company-wide: <b>{usd(rampWithheld.amount)}</b> over{" "}
+                {rampWithheld.n.toLocaleString()} charges on {rampWithheld.people} cards — a
+                company-wide figure, not comparable with the filtered total above.
+              </>
+            )}
+          </>
+        )}{" "}
+        That spend is still counted in the Dashboard and in every vendor, account and facility view,
+        under their own names.
       </p>
 
       {/* Mounted unconditionally so its TEXT mutates rather than the node being
