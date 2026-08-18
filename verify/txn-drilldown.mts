@@ -439,7 +439,7 @@ console.log("\n== cap, pagination and truncation reporting ==");
 }
 
 // --- Ramp drills reconcile ---------------------------------------------------
-// The Expense Intelligence page shows a cardholder's total from agg_ramp_person
+// The Card Spend page shows a cardholder's total from agg_ramp_person
 // and then offers a drill; if those two ever disagreed, the panel would be
 // quietly wrong about a named person's spending. Asserted here against the
 // fixture, and again against the live warehouse in verify/ramp.mts.

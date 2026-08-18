@@ -11,7 +11,7 @@ import {
 } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseBrowser";
 import { parseAlert, parsePin, type Alert, type Pin } from "@/lib/alerts";
-import type { RampPersonRow, RampVendorRow } from "@/lib/ramp";
+import { excludeRampCardholders, type RampPersonRow, type RampVendorRow } from "@/lib/ramp";
 import type { DrillContext, DrillFilters } from "@/components/TxnDrawer";
 
 /* ---------------------------------------------------------------------------
@@ -106,7 +106,7 @@ type Ctx = {
   setPinned: (alert: Alert, value: boolean) => void;
 
   openDrill: (ctx: DrillContext) => void;
-  /** Cardholder the Expense Intelligence page should preselect on arrival, and
+  /** Cardholder the Card Spend page should preselect on arrival, and
    *  the setter the drill-down uses to hand one over before navigating. */
   focusPerson: string | null;
   setFocusPerson: (person: string | null) => void;
@@ -234,6 +234,8 @@ export default function WarehouseProvider({
       name: string,
       limit: number,
       map: (r: any) => Data[K][number],
+      /** Optional read-layer projection, applied after `map`. */
+      refine?: (rows: Data[K]) => Data[K],
     ) => {
       sb.from(name)
         .select("*")
@@ -241,7 +243,8 @@ export default function WarehouseProvider({
         .then(({ data: rows, error }) => {
           if (!live()) return;
           if (error) return fail(key)(error);
-          land(key, ((rows ?? []) as any[]).map(map) as Data[K]);
+          const mapped = ((rows ?? []) as any[]).map(map) as Data[K];
+          land(key, refine ? refine(mapped) : mapped);
         }, fail(key));
     };
 
@@ -253,12 +256,22 @@ export default function WarehouseProvider({
       dim: () => table("dim", "dim_facility", 100, (r) => r as FAC),
       aa: () => table("aa", "agg_account", 2000, (r) => ({ ...r, amount: num(r.amount) })),
       av: () => table("av", "agg_vendor", 5000, (r) => ({ ...r, amount: num(r.amount) })),
+      /* The two Ramp datasets are filtered HERE, at the read, and nowhere else.
+         Both feed only the Card Spend tab, so this is the one place that can
+         drop the shared exec/admin cards without touching a stored row or any
+         other view. Filtering per-consumer instead would let the cardholder
+         list and the merchant drilldown disagree; filtering the warehouse
+         tables would remove real spend from the Dashboard. See
+         EXCLUDED_RAMP_CARDHOLDERS in lib/ramp.ts for why these six.
+
+         Applied after the map so `person` is already its final shape, and via
+         the shared helper so agg_ramp_person and agg_ramp_vendor cannot drift. */
       ramp: () => table("ramp", "agg_ramp_person", 5000, (r) => ({
         ...r, posted_period: String(r.posted_period).slice(0, 7), amount: num(r.amount),
-      })),
+      }), excludeRampCardholders),
       rampVendor: () => table("rampVendor", "agg_ramp_vendor", 5000, (r) => ({
         ...r, amount: num(r.amount), n: num(r.n), rk: num(r.rk),
-      })),
+      }), excludeRampCardholders),
       /* Alerts are transaction grain, so they come from the server route rather
          than a table — fact_txn is not browser-readable and must not become so. */
       alerts: () => {
@@ -368,7 +381,7 @@ export default function WarehouseProvider({
   const [focusPerson, setFocusPerson] = useState<string | null>(null);
 
   /* Opening a drill also asks for the Ramp roster, because the drawer offers a
-     link from a cardholder's name into Expense Intelligence and can only do that
+     link from a cardholder's name into Card Spend and can only do that
      for names the warehouse knows. Requested here rather than eagerly: it is
      146 kB that a user who never drills should not pay for. */
   const openDrill = useCallback(

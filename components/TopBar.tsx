@@ -15,7 +15,7 @@ import Select from "@/components/Select";
  *
  * They are global rather than per-page on purpose: it is what lets the alert
  * badge mean "needing review IN WHAT I AM LOOKING AT" and what lets a user carry
- * a facility from the Dashboard into Expense Intelligence without re-picking it.
+ * a facility from the Dashboard into Card Spend without re-picking it.
  */
 
 export default function TopBar({

@@ -8,7 +8,7 @@ import { SkRows } from "@/components/Skeleton";
 import PersonDetail from "@/components/PersonDetail";
 import PersonCompare from "@/components/PersonCompare";
 
-/* Expense Intelligence: Ramp card spend, by the person who spent it.
+/* Card Spend: Ramp card spend, by the person who spent it.
  *
  * Left, every cardholder ranked high to low — the same bar-row language as Spend
  * by Facility, so the screen needs no new reading. Right, whatever the selection
@@ -96,6 +96,15 @@ export default function RampPeople() {
           <>Loading Ramp card spend… </>
         )}
         <b>This is a slice of the Dashboard&rsquo;s total, not an addition to it.</b>
+      </p>
+
+      {/* Every figure on this tab — the line above, the ranked list, the shares,
+          the per-person panels — is computed from the same filtered rows, so
+          this note explains all of them at once rather than being repeated. */}
+      <p className="fine">
+        Shared exec/admin cards are excluded from the cardholder breakdown, because they buy across
+        many entities and a per-cardholder view misattributes them. Their spend is included in all
+        other expense views, under their own names.
       </p>
 
       {/* Mounted unconditionally so its TEXT mutates rather than the node being

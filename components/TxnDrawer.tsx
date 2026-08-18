@@ -78,7 +78,7 @@ export default function TxnDrawer({
   onClose: () => void;
   /** Known Ramp cardholders. A description only becomes a link if it is one. */
   cardholders?: Set<string>;
-  /** Jump to Expense Intelligence for this person. */
+  /** Jump to Card Spend for this person. */
   onPerson?: (person: string) => void;
 }) {
   const [limit, setLimit] = useState(100);

@@ -34,6 +34,53 @@ export type RampVendorRow = {
 /** The label public.ramp_person() gives rows with no description. */
 export const UNATTRIBUTED = "(unattributed)";
 
+/**
+ * Shared exec/admin cards, hidden from the CARDHOLDER BREAKDOWN ONLY.
+ *
+ * These six cards are used to buy on behalf of many entities at once, so the
+ * one name on the card is not the thing the money was spent on. Ranking them
+ * beside a facility manager's card answers "who holds the biggest card", which
+ * nobody is asking, instead of "whose spending should I look at", which is the
+ * whole point of this tab.
+ *
+ * THIS IS A PRESENTATION FILTER, NOT A SCOPE DECISION. Their spend is real and
+ * stays in fact_txn, agg_group_month, agg_account, agg_vendor and every
+ * categorical / vendor / account / facility view, under their own names. They
+ * are 50.2% of Ramp spend ($2,083,923.03 of $4,154,179.85), so ANY total
+ * computed off the unfiltered table while this filter is applied to the list
+ * will disagree with the list — always derive both from the same filtered rows.
+ *
+ * Strings match agg_ramp_person.person exactly, i.e. the output of
+ * public.ramp_person(description). Verified against the live table.
+ */
+export const EXCLUDED_RAMP_CARDHOLDERS: readonly string[] = [
+  "Gia Laubertie",
+  "Blake Vincent",
+  "Sophie Gomes",
+  "Ravinand Mathoera",
+  "Tara Vincent",
+  "Shayla Linn",
+];
+
+const EXCLUDED_SET: ReadonlySet<string> = new Set(EXCLUDED_RAMP_CARDHOLDERS);
+
+/** True when a cardholder is one of the shared exec/admin cards above. */
+export function isExcludedRampCardholder(person: string): boolean {
+  return EXCLUDED_SET.has(person);
+}
+
+/**
+ * Drop the shared exec/admin cards from any row set carrying a `person`.
+ *
+ * Generic on purpose: agg_ramp_person and agg_ramp_vendor have different shapes
+ * but both key on `person`, and both feed this tab. One function means the two
+ * cannot drift out of step — which would show a cardholder in a merchant
+ * drilldown who is absent from the list beside it.
+ */
+export function excludeRampCardholders<T extends { person: string }>(rows: T[]): T[] {
+  return rows.filter((r) => !EXCLUDED_SET.has(r.person));
+}
+
 /** agg_ramp_vendor keeps this many merchants per facility-and-person. */
 export const VENDOR_TOP_N = 12;
 
@@ -85,7 +132,7 @@ export function total(rows: { amount: number; n: number }[]): Tally {
 }
 
 /**
- * Cardholders ranked by spend, high to low — the shape the Expense Intelligence
+ * Cardholders ranked by spend, high to low — the shape the Card Spend
  * list renders directly.
  *
  * Ties break on name so the order is stable across renders. Without that, two

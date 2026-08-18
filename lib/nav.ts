@@ -27,7 +27,7 @@ export const NAV: readonly NavItem[] = [
   },
   {
     href: "/intelligence",
-    label: "Expense Intelligence",
+    label: "Card Spend",
     icon: "insights",
     blurb: "Ramp card spend by cardholder, and where it went.",
   },
