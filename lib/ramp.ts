@@ -7,8 +7,10 @@ import { GROUP_ORDER } from "./format";
 // these against the live warehouse with no browser and no test framework.
 //
 // THE ONE THING TO KNOW: these rows are a SLICE of agg_group_month, not an
-// addition to it. Every dollar here is already in the dashboard's
-// $22,851,611.16. Adding a Ramp figure to a dashboard figure double-counts.
+// addition to it. Every dollar here is already counted in the dashboard's
+// total. Adding a Ramp figure to a dashboard figure double-counts. (No literal
+// total is pinned here: it moves with every ingest, and a stale one in a comment
+// is read as fact long after it stops being one.)
 // ---------------------------------------------------------------------------
 
 export type RampPersonRow = {
@@ -46,9 +48,10 @@ export const UNATTRIBUTED = "(unattributed)";
  * THIS IS A PRESENTATION FILTER, NOT A SCOPE DECISION. Their spend is real and
  * stays in fact_txn, agg_group_month, agg_account, agg_vendor and every
  * categorical / vendor / account / facility view, under their own names. They
- * are 50.2% of Ramp spend ($2,083,923.03 of $4,154,179.85), so ANY total
- * computed off the unfiltered table while this filter is applied to the list
- * will disagree with the list — always derive both from the same filtered rows.
+ * are roughly half of all Ramp spend, so ANY total computed off the unfiltered
+ * table while this filter is applied to the list will disagree with the list —
+ * always derive both from the same filtered rows. (Exact shares are deliberately
+ * not pinned here; verify:ramp prints the current ones.)
  *
  * Strings match agg_ramp_person.person exactly, i.e. the output of
  * public.ramp_person(description). Verified against the live table.

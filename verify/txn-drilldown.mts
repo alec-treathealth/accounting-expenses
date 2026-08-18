@@ -73,6 +73,11 @@ const FIXTURE_TOTALS: Record<string, string> = {
   "27358347.38": "Apr 1 – Aug 18 2026 export",
   "27308353.19": "Apr 1 – Aug 11 2026 backfill export",
 }
+/* Facilities the warehouse may legitimately hold that the current export does
+   not. Empty this the moment one reappears upstream — a permanent entry here is
+   a facility whose figures quietly stopped refreshing. */
+const CARRIED_FORWARD = new Set(["St. Louis Mental Health"]);
+
 const known = FIXTURE_TOTALS[ing.total.toFixed(2)];
 ok(known !== undefined, "fixture ties out to a known export total",
    known ? `$${ing.total.toFixed(2)} — ${known}` : `$${ing.total.toFixed(2)} matches no known export`);
@@ -310,16 +315,39 @@ if (SB_URL && SB_KEY) {
 const liveKey = (f: string, p: string, g: string) => `${f}|${p}|${g}`;
 const liveMap = new Map(live.map((r) => [liveKey(r.facility, r.posted_period, r.kpi_group), r]));
 
-// Every fixture slice must equal the live aggregate row, to the penny.
+/* CONTAINMENT, NOT EQUALITY. Every fixture slice must equal its live row to the
+   penny — that is the real invariant and it is asserted strictly. The row COUNTS
+   are allowed to differ in one direction only: the warehouse may hold slices this
+   file does not, because St. Louis Mental Health was deliberately carried forward
+   from the previous export (it has no section at all in the current one).
+
+   Data LOSS is still a failure: a fixture slice missing from live, or any slice
+   whose amount disagrees, fails. What is tolerated is live-only slices, and they
+   are printed rather than waved through — an undisclosed extra is how a stale
+   carry-forward turns into a number nobody can source. */
 if (live.length) {
   let mism = 0;
+  let firstMism = "";
   for (const a of ing.aggGroupMonth) {
     const l = liveMap.get(liveKey(a.facility, a.posted_period, a.kpi_group));
-    if (!l || Number(l.amount).toFixed(2) !== a.amount.toFixed(2) || l.n !== a.n) mism++;
+    if (!l || Number(l.amount).toFixed(2) !== a.amount.toFixed(2) || l.n !== a.n) {
+      if (!mism) firstMism = `${a.facility} / ${a.posted_period} / ${a.kpi_group}`;
+      mism++;
+    }
   }
-  ok(mism === 0 && live.length === ing.aggGroupMonth.length,
+  ok(mism === 0,
     `all ${ing.aggGroupMonth.length} fixture (facility, month, group) slices match live agg_group_month`,
-    `mismatches=${mism}, live rows=${live.length}`);
+    mism ? `${mism} differ, first: ${firstMism}` : `${ing.aggGroupMonth.length} slices`);
+
+  const fixtureKeys = new Set(ing.aggGroupMonth.map((a) => liveKey(a.facility, a.posted_period, a.kpi_group)));
+  const liveOnly = live.filter((r) => !fixtureKeys.has(liveKey(r.facility, r.posted_period, r.kpi_group)));
+  const liveOnlyAmt = liveOnly.reduce((s, r) => s + Number(r.amount), 0);
+  const facs = [...new Set(liveOnly.map((r) => r.facility))].sort();
+  ok(liveOnly.length === 0 || facs.every((f) => CARRIED_FORWARD.has(f)),
+    "every live-only slice belongs to a declared carry-forward facility",
+    liveOnly.length
+      ? `${liveOnly.length} slices, $${liveOnlyAmt.toFixed(2)}, facilities: ${facs.join(", ")}`
+      : "none");
 }
 
 // --- 6. THE PROOF: drilled rows sum to the displayed aggregate --------------
@@ -407,8 +435,15 @@ console.log("\n== cap, pagination and truncation reporting ==");
     const expect = fixtureMonth.reduce((s, r) => s + Math.round(r.amount * 100), 0) / 100;
     ok(page.totals.count === fixtureMonth.length, "month-only drill counts every row in the month", `${page.totals.count} vs ${fixtureMonth.length}`);
     ok(page.totals.amount!.toFixed(2) === expect.toFixed(2), "month-only drill totals every row in the month", `$${page.totals.amount!.toFixed(2)}`);
+    /* >= not ==, for the carry-forward reason above: live may hold rows this
+       file does not, but must never hold FEWER than the file accounts for. */
     const liveMonth = live.filter((r) => r.posted_period === "2026-06-01").reduce((s, r) => s + Number(r.amount), 0);
-    if (live.length) ok(page.totals.amount!.toFixed(2) === liveMonth.toFixed(2), "month-only drill == live agg_group_month for that month", `$${liveMonth.toFixed(2)}`);
+    if (live.length) {
+      const extra = liveMonth - page.totals.amount!;
+      ok(extra >= -0.005, "live agg_group_month for the month covers every drilled row",
+         `live $${liveMonth.toFixed(2)} vs drilled $${page.totals.amount!.toFixed(2)}` +
+         (extra > 0.005 ? ` (+$${extra.toFixed(2)} carried forward)` : ""));
+    }
   }
 }
 {

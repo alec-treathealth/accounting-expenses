@@ -74,8 +74,19 @@ comment of `app/api/mapping/route.ts` before relying on it.
   Income, equity draws and balance-sheet accounts are excluded.
 - **No double-count.** The report lists each transaction under both a funding and
   an expense account; only the expense/COGS side is summed.
-- The whole pipeline reconciles to the source report **to the penny**
-  (`npm run verify:parser`).
+- **Company vs account comes from the report's own structure, never from the
+  name.** Each section is closed by a `Total for <name>` row, so `lib/parse.ts`
+  tracks the nesting as a stack: depth 1 is the company, depth 2 the account.
+  The earlier rule — *"an account starts with a digit"* — read
+  `DON'T USE! Due To R&B Mgmt (deleted)` as a company and silently dropped every
+  Nashville Mental Health account after it, 6,381 rows, for months.
+  **A tie-out cannot catch this**: the dropped rows are missing from both sides,
+  so every aggregate still reconciled to the penny. The parser now records
+  structural anomalies and the upload dialog refuses a file that has any.
+- The whole pipeline reconciles to the source report **to the penny**, and
+  independently: every one of the 1,756 `(company, account)` sections is checked
+  against the subtotal the report itself prints, which does not depend on the
+  parser's own row loop being correct.
 
 ## Idempotent, cron-style ingest
 
@@ -187,14 +198,19 @@ Apply the migrations in `supabase/migrations/` in order:
   Cost per Bed KPI. **Nullable, and the NULL means something**: no bed count on
   file. Readers must disclose such a facility, never treat it as zero.
 
-### `rebuild_aggregates()` cannot be called through PostgREST
-
-The `authenticator` role preloads `safeupdate`, so the function's unqualified
-`delete from agg_…` statements fail with *"DELETE requires a WHERE clause"*. That
-is the path `/api/ingest` phase `finalize` uses, so **the drag-and-drop upload
-appends rows but cannot rebuild the aggregates**. It surfaces as a 500, not
-silently, but the aggregates are left stale until a rebuild runs on a direct
-connection. Adding `where true` to each delete would fix it.
+- `0015_rebuild_aggregates_where_true.sql` — the `authenticator` role preloads
+  `safeupdate`, which rejects an unqualified `DELETE`. Every delete in
+  `rebuild_aggregates()` is unqualified by design, so the RPC failed with
+  *"DELETE requires a WHERE clause"* — meaning `/api/ingest` phase `finalize`,
+  and the `/admin` rebuild button, could not complete. `where true` satisfies the
+  hook and changes nothing else.
+- `0016_revoke_agg_ramp_write_grants.sql` — `agg_ramp_person`, `agg_ramp_vendor`
+  and `app_access` carried table-level write grants for `anon`/`authenticated`
+  that no other table has. RLS already refused the writes; this removes the grant
+  behind it.
+- `0017_dim_facility_notes_after_parser_fix.sql` — corrects the Nashville note,
+  which recorded a parser bug as an accounting fact, and marks St. Louis as
+  carried-forward and frozen.
 
 ## Security notes
 

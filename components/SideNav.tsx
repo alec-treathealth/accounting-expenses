@@ -108,7 +108,7 @@ export default function SideNav({
       </ul>
 
       <p className="rail-foot">
-        Apr 1 – Aug 11 2026<br />
+        Apr 1 – Aug 18 2026<br />
         August is partial.
       </p>
     </nav>

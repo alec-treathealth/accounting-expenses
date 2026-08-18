@@ -246,7 +246,7 @@ export default function CompareGrid({ rows, onCell }: CompareGridProps) {
       )}
 
       <p style={{ marginTop: "var(--space-3)", color: "var(--text-meta)", fontSize: "var(--size-ui-sm)" }}>
-        {monthInvolved ? "August is partial (through Aug 11) and is excluded from change columns. " : ""}
+        {monthInvolved ? "August is partial (through Aug 18) and is excluded from change columns. " : ""}
         Click any figure to see the transactions behind it.
       </p>
     </section>

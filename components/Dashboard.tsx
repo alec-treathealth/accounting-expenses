@@ -369,7 +369,7 @@ export default function Dashboard() {
           {GROUP_ORDER.map((g) => (
             <span key={g}><span className="sw" style={{ background: gcolor(g) }} />{g}</span>
           ))}
-          <span style={{ color: "var(--muted)" }}>* August partial (through Aug 11)</span>
+          <span style={{ color: "var(--muted)" }}>* August partial (through Aug 18)</span>
         </div>
       </section>
 

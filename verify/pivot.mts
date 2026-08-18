@@ -64,10 +64,11 @@ console.log(`source rows: ${rows.length}, grand $${GRAND.toFixed(2)}, n=${GRAND_
 /* A deliberate tripwire: it fails whenever the warehouse total moves, so a
    change has to be confirmed rather than absorbed. Update it ONLY alongside an
    approved ingest, and say in the commit what moved.
-     19,709,887.26  original 14-facility scope
-     22,851,611.16  + California Treatment Collective and Dallas Mental Health
-     23,209,169.29  + Red Rock Behavioral Health and the Aug 18 2026 export */
-ok(GRAND.toFixed(2) === "23209169.29", "source ties to the known grand total", "$" + GRAND.toFixed(2));
+     27,457,010.09  Aug 18 2026 export, section-stack parser, + carried-forward
+                    St. Louis. Every earlier figure on this line was produced by
+                    the parser that misread accounts as companies and dropped
+                    whole facilities, so none of them are kept as history. */
+ok(GRAND.toFixed(2) === "27457010.09", "source ties to the known grand total", "$" + GRAND.toFixed(2));
 
 const PAIRS: [Dim, Dim][] = [
   ["facility", "month"],
