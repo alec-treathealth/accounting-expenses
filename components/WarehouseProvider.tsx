@@ -238,26 +238,49 @@ export default function WarehouseProvider({
       map: (r: any) => Data[K][number],
       /** Optional read-layer projection, applied after `map`. */
       refine?: (rows: Data[K]) => Data[K],
+      /** Primary-key columns. REQUIRED for paging: see below. */
+      order: string[] = [],
     ) => {
-      sb.from(name)
-        .select("*")
-        .limit(limit)
-        .then(({ data: rows, error }) => {
+      /* PAGED, because `.limit(n)` DOES NOT DO WHAT IT LOOKS LIKE. PostgREST
+         caps every response at db-max-rows, which is 1000 on this project, and
+         it does so SILENTLY — no error, no truncation flag, just a short array.
+         `.limit(5000)` on agg_ramp_person (1,516 rows) returned 1,000, so the
+         Card Spend tab was rendering roughly $2.98M of a real $4.21M, and
+         agg_vendor (4,232 rows) lost three quarters of its merchants including
+         the second-largest one org-wide. Every figure downstream was quietly
+         understated. Verified against the live project with a raw REST call.
+
+         An explicit total order is not optional: without one, Postgres may
+         return rows in any order per request, so page 2 can repeat or skip rows
+         from page 1. Order on the primary key, which is unique by definition. */
+      const PAGE = 1000;
+      const acc: any[] = [];
+      const step = (from: number) => {
+        let q = sb.from(name).select("*");
+        for (const c of order) q = q.order(c, { ascending: true });
+        q.range(from, from + PAGE - 1).then(({ data: rows, error }) => {
           if (!live()) return;
           if (error) return fail(key)(error);
-          const mapped = ((rows ?? []) as any[]).map(map) as Data[K];
+          const batch = (rows ?? []) as any[];
+          acc.push(...batch);
+          // Stop on a short page, or at the caller's ceiling — `limit` is now a
+          // sanity bound on runaway growth, not a value handed to PostgREST.
+          if (batch.length === PAGE && acc.length < limit) return step(from + PAGE);
+          const mapped = acc.map(map) as Data[K];
           land(key, refine ? refine(mapped) : mapped);
         }, fail(key));
+      };
+      step(0);
     };
 
     const loaders: Record<DatasetKey, () => void> = {
       // posted_period arrives as a DATE; every consumer keys on "YYYY-MM".
-      gm: () => table("gm", "agg_group_month", 5000, (r) => ({
+      gm: () => table("gm", "agg_group_month", 50000, (r) => ({
         ...r, posted_period: String(r.posted_period).slice(0, 7), amount: num(r.amount),
-      })),
-      dim: () => table("dim", "dim_facility", 100, (r) => r as FAC),
-      aa: () => table("aa", "agg_account", 2000, (r) => ({ ...r, amount: num(r.amount) })),
-      av: () => table("av", "agg_vendor", 5000, (r) => ({ ...r, amount: num(r.amount) })),
+      }), undefined, ["facility", "posted_period", "kpi_group"]),
+      dim: () => table("dim", "dim_facility", 1000, (r) => r as FAC, undefined, ["facility"]),
+      aa: () => table("aa", "agg_account", 20000, (r) => ({ ...r, amount: num(r.amount) }), undefined, ["account_label"]),
+      av: () => table("av", "agg_vendor", 50000, (r) => ({ ...r, amount: num(r.amount) }), undefined, ["facility", "vendor", "kpi_group"]),
       /* The two Ramp datasets are filtered HERE, at the read, and nowhere else.
          Both feed only the Card Spend tab, so this is the one place that can
          drop the shared exec/admin cards without touching a stored row or any
@@ -268,12 +291,12 @@ export default function WarehouseProvider({
 
          Applied after the map so `person` is already its final shape, and via
          the shared helper so agg_ramp_person and agg_ramp_vendor cannot drift. */
-      ramp: () => table("ramp", "agg_ramp_person", 5000, (r) => ({
+      ramp: () => table("ramp", "agg_ramp_person", 50000, (r) => ({
         ...r, posted_period: String(r.posted_period).slice(0, 7), amount: num(r.amount),
-      }), excludeRampCardholders),
-      rampVendor: () => table("rampVendor", "agg_ramp_vendor", 5000, (r) => ({
+      }), excludeRampCardholders, ["facility", "posted_period", "person", "kpi_group"]),
+      rampVendor: () => table("rampVendor", "agg_ramp_vendor", 50000, (r) => ({
         ...r, amount: num(r.amount), n: num(r.n), rk: num(r.rk),
-      }), excludeRampCardholders),
+      }), excludeRampCardholders, ["facility", "person", "vendor"]),
       /* Alerts are transaction grain, so they come from the server route rather
          than a table — fact_txn is not browser-readable and must not become so. */
       alerts: () => {

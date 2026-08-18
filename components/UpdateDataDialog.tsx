@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ingestCsv, type IngestResult } from "@/lib/parse";
+import { FACILITY } from "@/lib/classify";
 import { usd } from "@/lib/format";
 import { useWarehouse } from "@/components/WarehouseProvider";
 import Icon from "@/components/Icon";
@@ -40,6 +41,14 @@ export default function UpdateDataDialog({ onClose }: { onClose: () => void }) {
   const [fileName, setFileName] = useState("");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
+  /* Every facility the classifier can name, minus those the file actually
+     produced rows for. Derived from FACILITY rather than dim_facility so this
+     works before any network read. */
+  const missingFacilities = useMemo(() => {
+    if (!parsed) return [];
+    const present = new Set(parsed.facilitiesPresent);
+    return [...new Set(Object.values(FACILITY))].filter((f) => !present.has(f)).sort();
+  }, [parsed]);
   const [result, setResult] = useState<{ inserted: number; total: number; orphans_count?: number } | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -104,6 +113,24 @@ export default function UpdateDataDialog({ onClose }: { onClose: () => void }) {
         const out = ingestCsv(String(reader.result || ""));
         if (!out.factRows.length) {
           setError("No in-scope expense rows found. Is this the “Consolidated transaction detail” report?");
+          setPhase("idle");
+          return;
+        }
+        /* A structurally surprising file is REFUSED, not imported with a
+           caption. The parser reads company/account nesting from the report's
+           own "Total for" rows; when those do not line up, rows get filed under
+           the wrong company — which is invisible afterwards, because the
+           mis-filed rows tie out on both sides of every reconciliation. This is
+           the check that would have caught Nashville Mental Health reporting $0
+           for months while its 3,304 rows sat in the file. */
+        if (out.anomalies.length) {
+          setError(
+            `This file does not have the expected company → account structure, so rows could be ` +
+              `attributed to the wrong facility. Nothing was uploaded. ` +
+              `${out.anomalies.length} problem${out.anomalies.length === 1 ? "" : "s"}, first ` +
+              `${Math.min(3, out.anomalies.length)}: ` +
+              out.anomalies.slice(0, 3).join(" | "),
+          );
           setPhase("idle");
           return;
         }
@@ -301,6 +328,22 @@ export default function UpdateDataDialog({ onClose }: { onClose: () => void }) {
                 </div>
               </dl>
               <p className="fine">Months in this file: {parsed.monthsPresent.join(", ")}.</p>
+
+              {/* A facility that is in scope but contributes NOTHING is the exact
+                  signature of the parser bug that hid Nashville Mental Health:
+                  the roster still listed it, the totals still reconciled, and the
+                  facility silently read $0. Naming it here makes that visible
+                  BEFORE the upload rather than months later. It is a warning and
+                  not a block, because a facility genuinely can report nothing. */}
+              {missingFacilities.length > 0 && (
+                <div className="banner">
+                  <b>Check before uploading.</b> {missingFacilities.length} in-scope{" "}
+                  {missingFacilities.length === 1 ? "facility contributes" : "facilities contribute"} no rows
+                  at all: {missingFacilities.join(", ")}. That is expected only if{" "}
+                  {missingFacilities.length === 1 ? "it genuinely" : "they genuinely"} booked nothing this
+                  period.
+                </div>
+              )}
 
               {busy && (
                 <div

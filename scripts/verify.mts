@@ -48,14 +48,18 @@ console.log("total            : $" + r.total.toFixed(2));
    on the way out of QuickBooks. A file that parses to none of these has either
    changed upstream or hit a classification regression — both worth stopping for.
 
-   19,709,887.26  original 14-facility scope
-   22,851,611.16  + California Treatment Collective and Dallas Mental Health
-   23,108,706.41  + Red Rock Behavioral Health, Apr 1 – Aug 18 2026 export */
+   EVERY EARLIER FIGURE HERE WAS WRONG, and not by a little. 19,709,887.26 /
+   22,851,611.16 / 23,108,706.41 / 23,088,675.19 were all produced by the parser
+   that decided company-vs-account by "does the name start with a digit", which
+   silently dropped every account section following an account whose name does
+   not — and every row after it in that company. They are artefacts of a defect,
+   not historical states of the business, so they are not kept as history.
+
+   The section-stack parser ties each of these to the report's own printed
+   "Total for" subtotals across all 1,756 / 2,008 sections with zero mismatches. */
 const KNOWN_TOTALS: Record<string, string> = {
-  "19709887.26": "original 14-facility scope",
-  "22851611.16": "Apr 1 – Aug 11 2026 export (+ CTC, Dallas)",
-  "23108706.41": "Apr 1 – Aug 18 2026 export (+ Red Rock)",
-  "23088675.19": "Apr 1 – Aug 11 2026 backfill export, re-parsed with Red Rock mapped",
+  "27358347.38": "Apr 1 – Aug 18 2026 export",
+  "27308353.19": "Apr 1 – Aug 11 2026 backfill export",
 };
 const known = KNOWN_TOTALS[r.total.toFixed(2)];
 console.log("MATCH            :", known ? `YES ✅ — ${known}` : "NO ❌ — matches no known export");
