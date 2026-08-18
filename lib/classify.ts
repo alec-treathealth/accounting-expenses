@@ -17,6 +17,7 @@ export const FACILITY: Record<string, string> = {
   "Northern California Mental Health": "Northern California Mental Health",
   "Opus Health, LLC": "Opus Health",
   "Pacific Coast Mental Health": "Pacific MH",
+  "Red Rock Behavioral Health": "Red Rock Behavioral Health",
   "Revival Mental Health LLC": "Revival MH",
   "Silicon Valley Recovery LLC": "Silicon Valley Recovery",
   "St Louis Mental Health, LLC": "St. Louis Mental Health",
