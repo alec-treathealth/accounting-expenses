@@ -17,8 +17,7 @@ import { createHash, timingSafeEqual } from "crypto";
 //   4. otherwise it must look like a first-party browser fetch of this app:
 //        - Sec-Fetch-Site: same-origin  (browser-set, page JS cannot forge it)
 //        - Origin/Referer host == request host, when either is present
-//        - on Vercel: a Deployment-Protection session cookie must be present,
-//          unless TXN_ALLOW_UNPROTECTED === "true"
+//        - and the request must carry a valid signed-in Supabase session
 //   5. anything else                           -> 401 unauthenticated
 // ---------------------------------------------------------------------------
 
@@ -26,8 +25,10 @@ export type AuthOk = { ok: true; via: "token" | "first-party" };
 export type AuthErr = { ok: false; status: number; code: string; message: string };
 export type AuthDecision = AuthOk | AuthErr;
 
-// Cookies Vercel sets once a viewer has cleared Deployment Protection (SSO).
-const VERCEL_SESSION_COOKIES = ["_vercel_jwt", "_vercel_sso_nonce"];
+/** Resolves whether this request carries a valid signed-in session. Injected
+ *  rather than imported so the gate stays unit-testable with no network and no
+ *  cookie fixtures — see verify/txn-drilldown.mts. */
+export type SessionProbe = () => Promise<boolean>;
 
 type HeaderBag = { get(name: string): string | null };
 
@@ -55,12 +56,10 @@ function hostOf(value: string | null): string | null {
   }
 }
 
-function hasVercelSession(h: HeaderBag): boolean {
-  const cookie = h.get("cookie") || "";
-  return VERCEL_SESSION_COOKIES.some((c) => new RegExp(`(?:^|;\\s*)${c}=`).test(cookie));
-}
-
-export function authorizeTxnRequest(req: { headers: HeaderBag }): AuthDecision {
+export async function authorizeTxnRequest(
+  req: { headers: HeaderBag },
+  hasSession: SessionProbe,
+): Promise<AuthDecision> {
   const h = req.headers;
 
   // 1. Without the service_role key there is no read path at all. Say so
@@ -120,12 +119,16 @@ export function authorizeTxnRequest(req: { headers: HeaderBag }): AuthDecision {
     return { ok: false, status: 403, code: "cross_site", message: "Origin does not match this host." };
   }
 
-  if (process.env.VERCEL === "1" && process.env.TXN_ALLOW_UNPROTECTED !== "true" && !hasVercelSession(h)) {
+  // A real application session. This replaced a check for a Vercel Deployment
+  // Protection cookie, which gated on Vercel team membership — impossible to
+  // extend to an outside bookkeeper, and never actually set on the production
+  // alias (exempt from protection), so it failed closed for every real user.
+  if (!(await hasSession())) {
     return {
       ok: false,
       status: 401,
-      code: "no_platform_session",
-      message: "No Vercel Deployment Protection session on this request.",
+      code: "no_session",
+      message: "Sign in to view transaction detail.",
     };
   }
 

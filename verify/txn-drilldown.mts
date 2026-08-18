@@ -28,6 +28,7 @@ import {
   type TxnFilters,
 } from "../lib/txnQuery.ts";
 import { authorizeTxnRequest } from "../lib/txnAuth.ts";
+import { isRampSplit, rampPerson } from "./rampRule.mts";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let failures = 0;
@@ -58,7 +59,28 @@ const csvPath = findCsv();
 const ing = ingestCsv(readFileSync(csvPath, "utf8"));
 console.log("source            :", csvPath);
 console.log("fixture fact rows :", ing.factRows.length, "totalling $" + ing.total.toFixed(2));
-ok(ing.total.toFixed(2) === "19709887.26", "fixture ties out to the grand total", "$" + ing.total.toFixed(2));
+/* The total OF THE CSV FIXTURE. Both figures below are the section-stack
+   parser's; the earlier literals here were artefacts of the company/account
+   misclassification and are not kept.
+
+   Two exports sit beside the repo, so findCsv() picks by directory order. Pass
+   the file explicitly to compare against a known figure:
+     npm run verify:drilldown -- "/path/to/...by account (1).csv"
+
+   NOTE: the checks below compare this fixture to LIVE agg_group_month, so they
+   only pass once the warehouse has been rebuilt from this same file. */
+const FIXTURE_TOTALS: Record<string, string> = {
+  "27358347.38": "Apr 1 – Aug 18 2026 export",
+  "27308353.19": "Apr 1 – Aug 11 2026 backfill export",
+}
+/* Facilities the warehouse may legitimately hold that the current export does
+   not. Empty this the moment one reappears upstream — a permanent entry here is
+   a facility whose figures quietly stopped refreshing. */
+const CARRIED_FORWARD = new Set(["St. Louis Mental Health"]);
+
+const known = FIXTURE_TOTALS[ing.total.toFixed(2)];
+ok(known !== undefined, "fixture ties out to a known export total",
+   known ? `$${ing.total.toFixed(2)} — ${known}` : `$${ing.total.toFixed(2)} matches no known export`);
 
 // --- 2. in-memory PostgREST stand-in ---------------------------------------
 // Implements only what lib/txnQuery.ts uses: select(count/head), eq, or, order,
@@ -116,14 +138,33 @@ function makeDb(tables: Record<string, Row[]>): TxnDb {
   };
 }
 
-const factRows: Row[] = ing.factRows.map((f: FactRow) => ({ ...f, kind: f.kind, loaded_at: "2026-08-11T00:00:00Z" }));
+/* is_ramp and ramp_cardholder are PostgREST COMPUTED columns in production
+   (supabase/migrations/0010), evaluated by Postgres. The fixture has no Postgres,
+   so it materialises them here with the independent restatement in
+   verify/rampRule.mts — which verify/ramp.mts separately proves agrees with the
+   SQL against the live warehouse. */
+const factRows: Row[] = ing.factRows.map((f: FactRow) => ({
+  ...f,
+  kind: f.kind,
+  loaded_at: "2026-08-11T00:00:00Z",
+  is_ramp: isRampSplit(f.split),
+  ramp_cardholder: rampPerson(f.description),
+}));
+const rampFixture = factRows.filter((r) => r.is_ramp);
 const db = makeDb({
   fact_txn: factRows,
   dim_facility: [...new Set(ing.factRows.map((f) => f.facility))].map((facility) => ({ facility })),
   agg_account: ing.aggAccount.map((a) => ({ account_label: a.account_label })),
   agg_vendor: ing.aggVendor.map((v) => ({ vendor: v.vendor })),
+  agg_ramp_person: [...new Set(rampFixture.map((r) => r.ramp_cardholder))].map((person) => ({ person })),
 });
-const emptyDb = makeDb({ fact_txn: [], dim_facility: [{ facility: "Hillside" }], agg_account: [], agg_vendor: [] });
+const emptyDb = makeDb({
+  fact_txn: [],
+  dim_facility: [{ facility: "Hillside" }],
+  agg_account: [],
+  agg_vendor: [],
+  agg_ramp_person: [],
+});
 
 resetAllowlistCache();
 const allow: Allowlists = await loadAllowlists(db);
@@ -152,6 +193,24 @@ ok(code("month=2026-07&sort=amount;drop") === "bad_sort", "non-whitelisted sort 
 ok(code("month=2026-07&dir=sideways") === "bad_dir", "bad sort direction refused", code("month=2026-07&dir=sideways"));
 ok(code("month=2026-07") === "ok", "valid month accepted");
 ok(code("posted_period=2026-07-01") === "ok", "posted_period form accepted");
+
+// --- Ramp / cardholder filters ---------------------------------------------
+// `ramp` alone selects 24,226 rows — 81% of the warehouse — so it must NOT
+// satisfy filter_required. A named cardholder must.
+ok(code("ramp=1") === "filter_required", "ramp alone is not a filter", code("ramp=1"));
+ok(code("ramp=yes") === "bad_ramp", "a mistyped ramp value is refused, not read as false", code("ramp=yes"));
+ok(code("person=Nobody%20Here") === "bad_person", "unknown cardholder refused", code("person=Nobody%20Here"));
+ok(code("person=Gia%20Laubertie") === "ok", "known cardholder accepted on its own");
+ok(code("ramp=1&month=2026-07") === "ok", "ramp narrows a filter that already exists");
+{
+  // A person IMPLIES ramp, and the implication must be applied where the filter
+  // set is produced — otherwise the page query and txn_totals() would disagree
+  // and the drawer would report "does not reconcile" against itself.
+  const r = parse("person=Gia%20Laubertie");
+  ok(r.ok && r.filters.ramp === true, "a cardholder implies the Ramp restriction");
+  const q = parse("month=2026-07");
+  ok(q.ok && q.filters.ramp === false && q.filters.person === null, "a plain drill sets neither flag");
+}
 {
   const r = parse("facility=Hillside&month=2026-07&kpi_group=Payroll%20Expenses");
   ok(r.ok && r.filters.limit === 100 && r.filters.offset === 0 && r.filters.sort === "txn_date" && r.filters.dir === "asc",
@@ -162,30 +221,64 @@ ok(code("posted_period=2026-07-01") === "ok", "posted_period form accepted");
 
 console.log("\n== auth gate (lib/txnAuth) ==");
 const hdrs = (h: Record<string, string>) => ({ headers: { get: (k: string) => h[k.toLowerCase()] ?? null } });
-const decide = (env: Record<string, string | undefined>, h: Record<string, string>) => {
+/* The session probe is injected, so the whole gate stays testable offline: no
+   Supabase round-trip, no cookie fixtures. `session` is what getSessionUser()
+   would have resolved to for this request. */
+const decide = async (env: Record<string, string | undefined>, h: Record<string, string>, session = false) => {
   const saved: Record<string, string | undefined> = {};
   for (const k of Object.keys(env)) { saved[k] = process.env[k]; if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; }
-  const d = authorizeTxnRequest(hdrs(h));
+  const d = await authorizeTxnRequest(hdrs(h), async () => session);
   for (const k of Object.keys(saved)) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
   return d;
 };
-const ON = { SUPABASE_SERVICE_ROLE_KEY: "test-key", TXN_DRILLDOWN_ENABLED: "true", TXN_DRILLDOWN_TOKEN: "test-token-not-a-real-secret", VERCEL: undefined, TXN_ALLOW_UNPROTECTED: undefined };
-const st = (d: ReturnType<typeof authorizeTxnRequest>) => (d.ok ? 200 : d.status);
-const cd = (d: ReturnType<typeof authorizeTxnRequest>) => (d.ok ? "ok:" + d.via : d.code);
+const ON = { SUPABASE_SERVICE_ROLE_KEY: "test-key", TXN_DRILLDOWN_ENABLED: "true", TXN_DRILLDOWN_TOKEN: "test-token-not-a-real-secret" };
+type Decision = Awaited<ReturnType<typeof authorizeTxnRequest>>;
+const st = (d: Decision) => (d.ok ? 200 : d.status);
+const cd = (d: Decision) => (d.ok ? "ok:" + d.via : d.code);
+const SAME_ORIGIN = { "sec-fetch-site": "same-origin", host: "app.example", origin: "https://app.example" };
 
-ok(st(decide({ ...ON, SUPABASE_SERVICE_ROLE_KEY: undefined }, {})) === 503, "no service_role key -> 503", cd(decide({ ...ON, SUPABASE_SERVICE_ROLE_KEY: undefined }, {})));
-ok(st(decide({ ...ON, TXN_DRILLDOWN_ENABLED: undefined }, { "sec-fetch-site": "same-origin" })) === 403, "drill-down off by default -> 403", cd(decide({ ...ON, TXN_DRILLDOWN_ENABLED: undefined }, { "sec-fetch-site": "same-origin" })));
-ok(st(decide(ON, {})) === 401, "bare request, no headers -> 401", cd(decide(ON, {})));
-ok(st(decide(ON, { "sec-fetch-site": "cross-site", origin: "https://evil.example" })) === 403, "cross-site fetch -> 403", cd(decide(ON, { "sec-fetch-site": "cross-site", origin: "https://evil.example" })));
-ok(st(decide(ON, { "sec-fetch-site": "same-origin", host: "app.example", origin: "https://evil.example" })) === 403, "same-origin claim with foreign Origin -> 403", cd(decide(ON, { "sec-fetch-site": "same-origin", host: "app.example", origin: "https://evil.example" })));
-ok(st(decide(ON, { authorization: "Bearer wrong" })) === 401, "wrong bearer token -> 401", cd(decide(ON, { authorization: "Bearer wrong" })));
-ok(st(decide({ ...ON, TXN_DRILLDOWN_TOKEN: undefined }, { "x-drilldown-token": "anything" })) === 401, "token presented but none configured -> 401", cd(decide({ ...ON, TXN_DRILLDOWN_TOKEN: undefined }, { "x-drilldown-token": "anything" })));
-ok(st(decide({ ...ON, VERCEL: "1" }, { "sec-fetch-site": "same-origin" })) === 401, "on Vercel without a Deployment-Protection cookie -> 401", cd(decide({ ...ON, VERCEL: "1" }, { "sec-fetch-site": "same-origin" })));
-ok(st(decide({ ...ON, VERCEL: "1" }, { "sec-fetch-site": "same-origin", cookie: "_vercel_jwt=abc" })) === 200, "on Vercel with a Deployment-Protection cookie -> allowed", cd(decide({ ...ON, VERCEL: "1" }, { "sec-fetch-site": "same-origin", cookie: "_vercel_jwt=abc" })));
-ok(st(decide(ON, { "x-drilldown-token": "test-token-not-a-real-secret" })) === 200, "correct token -> allowed", cd(decide(ON, { "x-drilldown-token": "test-token-not-a-real-secret" })));
-ok(st(decide(ON, { "sec-fetch-site": "same-origin", host: "app.example", origin: "https://app.example" })) === 200, "first-party same-origin fetch -> allowed", cd(decide(ON, { "sec-fetch-site": "same-origin", host: "app.example", origin: "https://app.example" })));
+{
+  let d = await decide({ ...ON, SUPABASE_SERVICE_ROLE_KEY: undefined }, {});
+  ok(st(d) === 503, "no service_role key -> 503", cd(d));
 
-// --- 5. live aggregates (read-only, publishable key) ------------------------
+  d = await decide({ ...ON, TXN_DRILLDOWN_ENABLED: undefined }, { "sec-fetch-site": "same-origin" });
+  ok(st(d) === 403, "drill-down off by default -> 403", cd(d));
+
+  d = await decide(ON, {});
+  ok(st(d) === 401, "bare request, no headers -> 401", cd(d));
+
+  d = await decide(ON, { "sec-fetch-site": "cross-site", origin: "https://evil.example" });
+  ok(st(d) === 403, "cross-site fetch -> 403", cd(d));
+
+  d = await decide(ON, { "sec-fetch-site": "same-origin", host: "app.example", origin: "https://evil.example" });
+  ok(st(d) === 403, "same-origin claim with foreign Origin -> 403", cd(d));
+
+  d = await decide(ON, { authorization: "Bearer wrong" });
+  ok(st(d) === 401, "wrong bearer token -> 401", cd(d));
+
+  d = await decide({ ...ON, TXN_DRILLDOWN_TOKEN: undefined }, { "x-drilldown-token": "anything" });
+  ok(st(d) === 401, "token presented but none configured -> 401", cd(d));
+
+  d = await decide(ON, { "x-drilldown-token": "test-token-not-a-real-secret" });
+  ok(st(d) === 200, "correct token -> allowed (no session needed)", cd(d));
+
+  /* The Supabase session replaces the old Vercel Deployment Protection cookie.
+     That gate keyed on Vercel team membership, and was never satisfied on the
+     production alias, so it failed closed for every real user. */
+  d = await decide(ON, SAME_ORIGIN, false);
+  ok(st(d) === 401 && cd(d) === "no_session", "first-party fetch with no session -> 401", cd(d));
+
+  d = await decide(ON, SAME_ORIGIN, true);
+  ok(st(d) === 200, "first-party fetch with a session -> allowed", cd(d));
+}
+
+// --- 5. live aggregates (read-only) -----------------------------------------
+//
+// Reads with the service_role key, falling back to the publishable key. The
+// publishable key alone stopped working here once 0005_auth_rls.sql moved these
+// tables from anon to authenticated — which is the whole point of that
+// migration, and is asserted directly by verify/anon-lockout.mts. This script
+// is operator-run against .env.local, so service_role is the right key for it.
 
 function envFromFile(): Record<string, string> {
   const out: Record<string, string> = {};
@@ -201,7 +294,11 @@ function envFromFile(): Record<string, string> {
 }
 const fileEnv = envFromFile();
 const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || fileEnv.NEXT_PUBLIC_SUPABASE_URL;
-const SB_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || fileEnv.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+const SB_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  fileEnv.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+  fileEnv.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
 type Agg = { facility: string; posted_period: string; kpi_group: string; amount: string; n: number };
 let live: Agg[] = [];
@@ -218,16 +315,39 @@ if (SB_URL && SB_KEY) {
 const liveKey = (f: string, p: string, g: string) => `${f}|${p}|${g}`;
 const liveMap = new Map(live.map((r) => [liveKey(r.facility, r.posted_period, r.kpi_group), r]));
 
-// Every fixture slice must equal the live aggregate row, to the penny.
+/* CONTAINMENT, NOT EQUALITY. Every fixture slice must equal its live row to the
+   penny — that is the real invariant and it is asserted strictly. The row COUNTS
+   are allowed to differ in one direction only: the warehouse may hold slices this
+   file does not, because St. Louis Mental Health was deliberately carried forward
+   from the previous export (it has no section at all in the current one).
+
+   Data LOSS is still a failure: a fixture slice missing from live, or any slice
+   whose amount disagrees, fails. What is tolerated is live-only slices, and they
+   are printed rather than waved through — an undisclosed extra is how a stale
+   carry-forward turns into a number nobody can source. */
 if (live.length) {
   let mism = 0;
+  let firstMism = "";
   for (const a of ing.aggGroupMonth) {
     const l = liveMap.get(liveKey(a.facility, a.posted_period, a.kpi_group));
-    if (!l || Number(l.amount).toFixed(2) !== a.amount.toFixed(2) || l.n !== a.n) mism++;
+    if (!l || Number(l.amount).toFixed(2) !== a.amount.toFixed(2) || l.n !== a.n) {
+      if (!mism) firstMism = `${a.facility} / ${a.posted_period} / ${a.kpi_group}`;
+      mism++;
+    }
   }
-  ok(mism === 0 && live.length === ing.aggGroupMonth.length,
+  ok(mism === 0,
     `all ${ing.aggGroupMonth.length} fixture (facility, month, group) slices match live agg_group_month`,
-    `mismatches=${mism}, live rows=${live.length}`);
+    mism ? `${mism} differ, first: ${firstMism}` : `${ing.aggGroupMonth.length} slices`);
+
+  const fixtureKeys = new Set(ing.aggGroupMonth.map((a) => liveKey(a.facility, a.posted_period, a.kpi_group)));
+  const liveOnly = live.filter((r) => !fixtureKeys.has(liveKey(r.facility, r.posted_period, r.kpi_group)));
+  const liveOnlyAmt = liveOnly.reduce((s, r) => s + Number(r.amount), 0);
+  const facs = [...new Set(liveOnly.map((r) => r.facility))].sort();
+  ok(liveOnly.length === 0 || facs.every((f) => CARRIED_FORWARD.has(f)),
+    "every live-only slice belongs to a declared carry-forward facility",
+    liveOnly.length
+      ? `${liveOnly.length} slices, $${liveOnlyAmt.toFixed(2)}, facilities: ${facs.join(", ")}`
+      : "none");
 }
 
 // --- 6. THE PROOF: drilled rows sum to the displayed aggregate --------------
@@ -315,8 +435,15 @@ console.log("\n== cap, pagination and truncation reporting ==");
     const expect = fixtureMonth.reduce((s, r) => s + Math.round(r.amount * 100), 0) / 100;
     ok(page.totals.count === fixtureMonth.length, "month-only drill counts every row in the month", `${page.totals.count} vs ${fixtureMonth.length}`);
     ok(page.totals.amount!.toFixed(2) === expect.toFixed(2), "month-only drill totals every row in the month", `$${page.totals.amount!.toFixed(2)}`);
+    /* >= not ==, for the carry-forward reason above: live may hold rows this
+       file does not, but must never hold FEWER than the file accounts for. */
     const liveMonth = live.filter((r) => r.posted_period === "2026-06-01").reduce((s, r) => s + Number(r.amount), 0);
-    if (live.length) ok(page.totals.amount!.toFixed(2) === liveMonth.toFixed(2), "month-only drill == live agg_group_month for that month", `$${liveMonth.toFixed(2)}`);
+    if (live.length) {
+      const extra = liveMonth - page.totals.amount!;
+      ok(extra >= -0.005, "live agg_group_month for the month covers every drilled row",
+         `live $${liveMonth.toFixed(2)} vs drilled $${page.totals.amount!.toFixed(2)}` +
+         (extra > 0.005 ? ` (+$${extra.toFixed(2)} carried forward)` : ""));
+    }
   }
 }
 {
@@ -357,6 +484,54 @@ console.log("\n== cap, pagination and truncation reporting ==");
     ok(page.totals.count === a.n && page.totals.amount!.toFixed(2) === a.amount.toFixed(2),
       `account drill matches agg_account (${a.account_label.slice(0, 28)})`, `${page.totals.count}/${a.n} rows, $${page.totals.amount!.toFixed(2)}/$${a.amount.toFixed(2)}`);
   }
+}
+
+// --- Ramp drills reconcile ---------------------------------------------------
+// The Card Spend page shows a cardholder's total from agg_ramp_person
+// and then offers a drill; if those two ever disagreed, the panel would be
+// quietly wrong about a named person's spending. Asserted here against the
+// fixture, and again against the live warehouse in verify/ramp.mts.
+console.log("\n== ramp drills ==");
+{
+  const rampTotalCents = rampFixture.reduce((s, r) => s + Math.round(r.amount * 100), 0);
+  ok(rampFixture.length > 0, "the export contains Ramp charges", `${rampFixture.length} rows`);
+
+  const p = parse("ramp=1&month=2026-07");
+  if (p.ok) {
+    const page = await fetchTxnPage(db, p.filters);
+    const want = rampFixture.filter((r) => String(r.posted_period).slice(0, 7) === "2026-07");
+    ok(page.totals.count === want.length,
+      "ramp + month drill counts exactly the Ramp rows in that month", `${page.totals.count} vs ${want.length}`);
+    ok(Math.round(page.totals.amount! * 100) === want.reduce((s, r) => s + Math.round(r.amount * 100), 0),
+      "ramp + month drill totals exactly those rows", `$${page.totals.amount!.toFixed(2)}`);
+  }
+
+  // Biggest cardholder, since that is the row a user is most likely to open.
+  const byPerson = new Map<string, { cents: number; n: number }>();
+  for (const r of rampFixture) {
+    const cur = byPerson.get(r.ramp_cardholder) ?? { cents: 0, n: 0 };
+    cur.cents += Math.round(r.amount * 100);
+    cur.n += 1;
+    byPerson.set(r.ramp_cardholder, cur);
+  }
+  const [person, want] = [...byPerson.entries()].sort((a, b) => b[1].cents - a[1].cents)[0];
+  const pp = parse(`person=${encodeURIComponent(person)}&limit=500`);
+  if (pp.ok) {
+    const page = await fetchTxnPage(db, pp.filters);
+    ok(page.totals.count === want.n, `cardholder drill counts every charge (${person})`, `${page.totals.count} vs ${want.n}`);
+    ok(Math.round(page.totals.amount! * 100) === want.cents,
+      "cardholder drill totals exactly their charges", `$${(want.cents / 100).toFixed(2)}`);
+    ok(page.rows.every((r) => isRampSplit(r.split)),
+      "every row returned for a cardholder is a Ramp charge — the implication holds through the query");
+  }
+
+  // Every cardholder's share must add back up to the whole. If normalisation
+  // dropped or merged someone, this is where it shows.
+  const sumOfPeople = [...byPerson.values()].reduce((s, v) => s + v.cents, 0);
+  ok(sumOfPeople === rampTotalCents,
+    "every cardholder's spend sums back to the whole Ramp slice",
+    `$${(sumOfPeople / 100).toFixed(2)} vs $${(rampTotalCents / 100).toFixed(2)}`);
+  ok(!byPerson.has(""), "normalisation never produces an empty cardholder name");
 }
 
 // --- 8. empty fact_txn (today's production state) ---------------------------

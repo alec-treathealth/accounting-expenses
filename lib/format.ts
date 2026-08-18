@@ -58,3 +58,21 @@ export const MONTH_LABEL: Record<string, string> = {
   "2026-07": "Jul",
   "2026-08": "Aug*",
 };
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+/** "2026-07" -> "July".
+ *
+ *  Pure string/number math, never a Date, and that is the whole point. The month
+ *  picker used to do `new Date("2026-07-01").toLocaleString("en-US", {month:"long"})`.
+ *  The date-only ISO form parses as UTC midnight, and toLocaleString renders it
+ *  in the VIEWER's zone, so at any negative UTC offset every label came out one
+ *  month early: April read "March" and July read "June", which made July look
+ *  deleted (August had a hardcoded label, so nothing was left saying "July").
+ *  The data was never wrong — only the caption. It also caused a hydration
+ *  mismatch, since the server renders in UTC and the browser does not. */
+export const monthName = (period: string): string =>
+  MONTH_NAMES[Number(period.slice(5, 7)) - 1] ?? period;

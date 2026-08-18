@@ -112,11 +112,28 @@ button.btn-sm { min-height: 26px; }
    LAYOUT GRIDS
    ========================================================================== */
 .grid { display: grid; gap: var(--space-3); }
-.kpis { grid-template-columns: repeat(4, 1fr); margin-top: var(--space-4); }
-@media (max-width: 720px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+
+/* INTRINSIC, not breakpoint-driven. These grids sit inside a content column
+   whose width now depends on the navigation rail (240px / 72px / 0), so a fixed
+   column count is wrong at some rail width by construction — .kpis was
+   repeat(4, 1fr) holding three cards, which left a dead quarter of the row.
+   auto-fit collapses empty tracks, so three cards give exactly three columns
+   when there is room and wrap when there is not, at any rail width, and a
+   fourth card added later needs no CSS change. */
+/* min(Npx, 100%) is not belt-and-braces — auto-fit collapses empty TRACKS but it
+   cannot shrink a track below a fixed minmax minimum, so a bare minmax(340px,1fr)
+   is 340px wide inside a 298px content box at a 320px viewport (iPhone SE, or
+   any 200% zoom under WCAG 1.4.10 reflow) and pushes the whole document
+   sideways. min() clamps the minimum to the container and the overflow cannot
+   happen at any width. */
+.kpis { grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr)); margin-top: var(--space-4); }
 section { margin-top: var(--space-3); }
-.two { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
-@media (max-width: 860px) { .two { grid-template-columns: 1fr; } }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: var(--space-3); }
+
+/* Anything that can outgrow its column scrolls INSIDE its own box. The page body
+   must never scroll sideways — a horizontal scrollbar on a financial table is
+   how a reader misses the column that carries the number. */
+.table-scroll, .chart-scroll { overflow-x: auto; }
 
 /* components.css owns .card's surface, radius and padding. The dashboard wants
    the ring on every card, so add elevation here rather than repeating .card. */
@@ -145,8 +162,10 @@ section { margin-top: var(--space-3); }
    "Northern California Mental Health". Wider column, and wrap instead of
    truncate so a long name stays fully readable when space runs out.
    ========================================================================== */
+/* The label column is a variable so a bar row can live in a 340px side list and
+   in a full-width card without a second component. Panels set --bar-lab. */
 .bar-row {
-  display: grid; grid-template-columns: 200px minmax(64px, 1fr) auto;
+  display: grid; grid-template-columns: var(--bar-lab, 200px) minmax(48px, 1fr) auto;
   gap: var(--space-3); align-items: center; margin: 7px 0; font-size: var(--size-ui);
 }
 .bar-lab {
@@ -156,7 +175,10 @@ section { margin-top: var(--space-3); }
 .sw { width: 9px; height: 9px; border-radius: 2px; flex: none; display: inline-block; }
 /* keep the swatch on the label's first line when the name wraps */
 .bar-lab .sw { margin-top: 3px; }
-@media (max-width: 480px) { .bar-row { grid-template-columns: 140px minmax(40px, 1fr) auto; } }
+/* .sk-row too, not just .bar-row: the skeleton is sized to match the real row,
+   so an override that reaches only one of them makes the loading state wider
+   than the loaded state and overflows the card it sits in. */
+@media (max-width: 480px) { .bar-row, .sk-row { --bar-lab: 120px; } }
 
 .track {
   height: 16px; background: color-mix(in srgb, var(--color-text) 10%, transparent);
@@ -218,11 +240,13 @@ footer { margin-top: var(--space-6); color: var(--text-meta); font-size: var(--s
    CSV UPLOAD
    ========================================================================== */
 .drop {
+  display: flex; flex-direction: column; align-items: center;
   border: 1.5px dashed var(--color-divider); border-radius: var(--radius-md);
   padding: var(--space-8); text-align: center; color: var(--text-secondary);
   background: var(--color-surface); cursor: pointer;
   transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
 }
+.drop-browse { color: var(--text-accent); text-decoration: underline; text-underline-offset: 2px; }
 .drop.over {
   border-color: var(--color-accent);
   background: color-mix(in srgb, var(--color-accent) 8%, transparent);
@@ -341,5 +365,464 @@ mark.dd-hit {
    .ths-skeleton (shimmer) comes from components.css.
    ========================================================================== */
 .sk-line { height: 11px; border-radius: var(--radius-sm); }
-.sk-row { display: grid; grid-template-columns: 200px minmax(64px, 1fr) 90px; gap: var(--space-3); align-items: center; margin: 7px 0; }
+.sk-row { display: grid; grid-template-columns: var(--bar-lab, 200px) minmax(48px, 1fr) 90px; gap: var(--space-3); align-items: center; margin: 7px 0; }
 .sk-kpi { height: 28px; width: 62%; margin-top: 3px; }
+
+/* ============================================================================
+   APP SHELL — M3 navigation rail + top bar
+   Three widths, one DOM. The rail's width is a custom property on .shell so the
+   grid track and the rail itself can never disagree about it.
+   ========================================================================== */
+
+.skip {
+  position: absolute; left: var(--space-3); top: -60px; z-index: 70;
+  padding: var(--space-2) var(--space-4); border-radius: var(--radius-md);
+  background: var(--color-surface-raised); color: var(--color-text);
+  box-shadow: var(--shadow-md); font-size: var(--size-ui);
+  transition: top var(--dur-1) var(--ease);
+}
+.skip:focus { top: var(--space-3); text-decoration: none; }
+
+/* COLLAPSED IS THE DEFAULT WIDTH, at every breakpoint. Four sections do not
+   earn a 240px column of mostly whitespace on every screen; expanding is a
+   choice the user makes and it persists in localStorage. */
+.shell {
+  --rail-w: 72px;
+  display: grid;
+  /* minmax(0,1fr) is load-bearing: a grid track defaults to min-content, so a
+     wide table inside would push the whole page sideways instead of scrolling
+     within its own box. */
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  min-height: 100dvh;
+}
+.shell-main { min-width: 0; display: flex; flex-direction: column; }
+.shell-content {
+  flex: 1; min-width: 0; width: 100%; max-width: 1400px;
+  padding: var(--space-4) var(--space-6) 64px;
+}
+
+.shell[data-rail="expanded"] { --rail-w: 248px; }
+
+.rail-host { position: sticky; top: 0; height: 100dvh; z-index: 30; }
+.rail {
+  display: flex; flex-direction: column; height: 100%; width: 100%;
+  padding: var(--space-4) var(--space-3);
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-divider);
+  /* NOT overflow-y:auto. Setting overflow on one axis computes the other to
+     `auto` too, which would clip the hover label chips that make the collapsed
+     rail readable. Four items plus a mark and a footnote is ~300px, so there is
+     nothing to scroll. The drawer below 760px restores scrolling, where the
+     chips are off anyway. */
+  overflow: visible;
+}
+
+.rail-brand {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  padding: var(--space-1) var(--space-2) var(--space-6);
+}
+/* The mark is the expand control, so it is a button — reset to look like the
+   logo it contains and nothing else. */
+.rail-logo {
+  position: relative; display: inline-flex; align-items: center;
+  background: none; border: 0; padding: var(--space-2); min-height: 0;
+  border-radius: var(--radius-md); color: var(--color-text); cursor: pointer;
+  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+.rail-logo:hover { background: var(--fill-accent-hover); color: var(--color-accent); }
+.rail-close { flex: none; }
+
+/* Both logo frames are in the DOM; CSS picks one. Chosen this way because the
+   ground is restored in a layout effect, so a JS branch would render the wrong
+   mark on the server and flash on hydration. */
+.logo-on-light { display: none; }
+[data-ground="light"] .logo-on-dark { display: none; }
+[data-ground="light"] .logo-on-light { display: inline; }
+
+.logo { display: inline-flex; align-items: center; gap: 9px; min-width: 0; }
+.logo-word {
+  font-family: var(--font-heading); font-size: var(--size-h5);
+  font-weight: var(--weight-medium); letter-spacing: var(--tracking-heading);
+  color: var(--color-text); white-space: nowrap;
+}
+
+.rail-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.rail-item {
+  position: relative; display: flex; align-items: center; gap: 10px;
+  height: 44px; padding: 0 var(--space-4); border-radius: 99px;
+  color: var(--text-secondary); text-decoration: none;
+  font-size: var(--size-ui); font-weight: var(--weight-medium);
+  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+/* Hover is ACCENT-TINTED, not a neutral grey wash: on a rail that is usually
+   icon-only, the hover state is most of the feedback a user gets, so it carries
+   the brand rather than merely acknowledging the pointer. */
+.rail-item:hover { background: var(--fill-accent-hover); color: var(--color-accent); text-decoration: none; }
+.rail-icon { display: inline-flex; transition: transform var(--dur-2) var(--ease); }
+.rail-item:hover .rail-icon { transform: scale(1.12); }
+
+/* The M3 active indicator. A SOLID accent fill, which components.css names as
+   one of exactly three sanctioned uses — alongside a progress fill and a chart
+   series. Everywhere else the accent stays a line and a glow.
+   Hover grows a SHORT stub; the current page keeps the full bar. The two rules
+   have equal specificity, so the aria-current one must come last. */
+.rail-indicator {
+  position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 0; border-radius: 99px; background: var(--color-accent);
+  transition: height var(--dur-2) var(--ease);
+}
+.rail-item:hover .rail-indicator { height: 11px; }
+.rail-item[aria-current="page"] { background: var(--fill-selected); color: var(--color-accent); }
+.rail-item[aria-current="page"] .rail-indicator { height: 22px; }
+
+.rail-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The hover/focus label chip. This is what makes an icon-only rail learnable —
+   without it the collapsed state is a row of glyphs and a guess. Rendered only
+   when collapsed; the expanded rail has real labels. */
+.rail-tip {
+  position: absolute; left: calc(100% + 10px); top: 50%; z-index: 40;
+  display: none; align-items: center; gap: 6px;
+  padding: 5px 10px; border-radius: var(--radius-md);
+  background: var(--color-surface-raised); color: var(--color-text);
+  box-shadow: var(--shadow-md);
+  font-size: var(--size-ui-sm); font-weight: var(--weight-medium);
+  white-space: nowrap; pointer-events: none;
+  opacity: 0; visibility: hidden;
+  transform: translateY(-50%) translateX(-6px);
+  transition: opacity var(--dur-1) var(--ease), transform var(--dur-1) var(--ease), visibility var(--dur-1);
+}
+.rail-tip-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 16px; padding: 0 5px; border-radius: 99px;
+  font-size: var(--size-tag); font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  background: var(--color-warn); color: var(--color-bg);
+}
+.shell[data-rail="collapsed"] .rail-tip { display: inline-flex; }
+.shell[data-rail="collapsed"] .rail-item:hover .rail-tip,
+.shell[data-rail="collapsed"] .rail-item:focus-visible .rail-tip,
+.shell[data-rail="collapsed"] .rail-logo:hover .rail-tip,
+.shell[data-rail="collapsed"] .rail-logo:focus-visible .rail-tip {
+  opacity: 1; visibility: visible; transform: translateY(-50%) translateX(0);
+}
+
+/* WARN, not danger. The design system reserves --color-danger for errors and
+   destructive actions ("never use --color-danger for emphasis"), and an alert
+   count is emphasis on something to review, not a failure. Solid warn with the
+   page ground as the text colour clears AA on both grounds. */
+.rail-badge {
+  min-width: 20px; height: 18px; padding: 0 6px; border-radius: 99px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: var(--size-tag); font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  background: var(--color-warn); color: var(--color-bg);
+}
+
+.rail-foot { margin: 0; padding: var(--space-4) var(--space-4) 0; font-size: var(--size-meta); color: var(--text-meta); line-height: 1.5; }
+/* The scrim belongs to the off-canvas drawer and must not survive into a width
+   where the drawer does not exist. AppShell closes the menu on the breakpoint
+   change, and this is the second line of defence: without it, opening the menu
+   on a phone and rotating to landscape leaves a full-screen click-blocking
+   overlay above the top bar (z-index 29 over 20) with its only dismiss control
+   — .topbar-menu — now display:none. */
+.rail-scrim { position: fixed; inset: 0; z-index: 29; background: color-mix(in srgb, var(--color-bg) 60%, transparent); }
+@media (min-width: 760px) { .rail-scrim { display: none; } }
+
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap;
+  padding: var(--space-3) var(--space-6);
+  background: color-mix(in srgb, var(--color-bg) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--color-divider);
+}
+.topbar-menu { display: none; }
+.topbar-title { flex: 1 1 220px; min-width: 0; }
+.topbar-title h1 { font-size: var(--size-h4); margin: 0; }
+.topbar-blurb { margin: 2px 0 0; font-size: var(--size-ui-sm); color: var(--text-meta); }
+.topbar-controls { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+
+/* ---- Collapsed presentation ----------------------------------------------
+   Driven by the persisted preference, not by a breakpoint. Selectors are
+   [data-rail=...] so the mobile block below can override them with EQUAL
+   specificity and later source order — a bare `.shell .rail-label` would be one
+   class weaker and would silently lose.
+   -------------------------------------------------------------------------- */
+.shell[data-rail="collapsed"] .rail-brand { justify-content: center; padding-left: 0; padding-right: 0; }
+.shell[data-rail="collapsed"] .rail-item { justify-content: center; gap: 0; padding: 0; }
+/* CLIPPED, not removed. The icon is aria-hidden, so deleting the text would
+   leave a link with no accessible name. */
+.shell[data-rail="collapsed"] .rail-label,
+.shell[data-rail="collapsed"] .rail-foot {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.shell[data-rail="collapsed"] .rail-badge { position: absolute; top: 3px; right: 8px; }
+
+/* ---- Off-canvas drawer --------------------------------------------------- */
+@media (max-width: 759px) {
+  .shell[data-rail] { --rail-w: 0px; grid-template-columns: minmax(0, 1fr); }
+  .rail-host {
+    position: fixed; left: 0; top: 0; width: 264px;
+    /* visibility, not transform alone: a rail that is merely translated
+       off-screen keeps its links in the tab order, so a keyboard user would tab
+       into a menu they cannot see. */
+    visibility: hidden; transform: translateX(-100%);
+    transition: transform var(--dur-2) var(--ease), visibility var(--dur-2);
+  }
+  .rail-host[data-open="true"] { visibility: visible; transform: none; }
+  .rail { overflow-y: auto; }
+  /* The drawer always shows labels — the collapse preference belongs to the
+     desktop rail, and a 264px drawer of unlabelled icons would be pointless. */
+  .shell[data-rail] .rail-brand { justify-content: space-between; padding: var(--space-1) var(--space-2) var(--space-6); }
+  .shell[data-rail] .rail-item { justify-content: flex-start; gap: 10px; padding: 0 var(--space-4); }
+  .shell[data-rail] .rail-label {
+    position: static; width: auto; height: auto; margin: 0; clip: auto; border: 0;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .shell[data-rail] .rail-foot {
+    position: static; width: auto; height: auto; overflow: visible; clip: auto;
+    margin: 0; padding: var(--space-4) var(--space-4) 0;
+  }
+  .shell[data-rail] .rail-badge { position: static; top: auto; right: auto; }
+  .shell[data-rail] .rail-tip { display: none; }
+  .topbar-menu { display: inline-flex; }
+  .topbar, .shell-content { padding-left: var(--space-4); padding-right: var(--space-4); }
+}
+
+/* ============================================================================
+   EXPENSE INTELLIGENCE
+   ========================================================================== */
+
+.split { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: var(--space-3); align-items: start; }
+@media (max-width: 1000px) { .split { grid-template-columns: minmax(0, 1fr); } }
+
+.people-list { --bar-lab: 118px; }
+.people-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.people-search { width: 100%; margin-top: var(--space-2); }
+/* The list is 90 cardholders long; capping it keeps the selected person's panel
+   on screen instead of pushed below the fold. */
+.people-scroll { max-height: 58vh; overflow-y: auto; margin-top: var(--space-2); }
+
+.person-row[data-selected="true"] .bar-lab { color: var(--color-accent); font-weight: var(--weight-medium); }
+.person-row[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+
+.person-detail { --bar-lab: 170px; }
+.person-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.person-name { font-size: var(--size-h5); margin: 0; }
+.person-meta { margin: 3px 0 0; font-size: var(--size-ui); color: var(--text-secondary); }
+.person-block { margin-top: var(--space-6); }
+.person-block h3 {
+  margin: 0 0 var(--space-2); font-size: var(--size-h6);
+  text-transform: uppercase; letter-spacing: var(--tracking-eyebrow); color: var(--text-meta);
+}
+.person-empty h2 { font-size: var(--size-h5); margin: 0 0 var(--space-3); }
+.person-empty p { font-size: var(--size-ui); color: var(--text-secondary); max-width: 62ch; }
+
+.spark { display: flex; align-items: flex-end; gap: var(--space-2); }
+.spark-col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.spark-track {
+  width: 100%; height: 72px; display: flex; align-items: flex-end;
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+  border-radius: var(--radius-sm); overflow: hidden;
+}
+.spark-fill { width: 100%; min-height: 2px; background: var(--color-accent); border-radius: var(--radius-sm); transition: height var(--dur-3) var(--ease); }
+.spark-val { font-size: var(--size-meta); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.spark-lab { font-size: var(--size-meta); color: var(--text-meta); }
+
+.stat-pair { display: flex; flex-wrap: wrap; gap: var(--space-8); margin: var(--space-6) 0 0; }
+.stat-pair dt { font-size: var(--size-label); text-transform: uppercase; letter-spacing: var(--tracking-label); color: var(--text-meta); }
+.stat-pair dd { margin: 2px 0 0; font-size: var(--size-h4); font-variant-numeric: tabular-nums; color: var(--color-text); }
+
+/* ============================================================================
+   EXPENSE ALERTS
+   ========================================================================== */
+
+.alert-controls {
+  display: flex; align-items: center; gap: var(--space-3);
+  flex-wrap: wrap; margin-bottom: var(--space-3);
+}
+.alert-cols {
+  display: grid; align-items: start; gap: var(--space-3);
+  grid-template-columns: minmax(0, 1fr) minmax(min(300px, 100%), 340px);
+}
+@media (max-width: 1100px) { .alert-cols { grid-template-columns: minmax(0, 1fr); } }
+.alert-main-col { min-width: 0; }
+
+.alert-filter { flex-wrap: wrap; }
+.seg-count { font-variant-numeric: tabular-nums; opacity: .72; }
+
+.alert-list { list-style: none; margin: 0; padding: 0; }
+.alert-list li + li { border-top: 1px solid var(--hairline); }
+
+/* A row is a container, NOT a button: it holds the drill trigger plus the pin
+   and read controls, and nesting those inside one button would be invalid HTML
+   and unreachable by keyboard. */
+.alert-row {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: var(--space-4); padding: var(--space-3) var(--space-2);
+  border-radius: var(--radius-md);
+}
+.alert-row:hover { background: var(--fill-hover); }
+.alert-main {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px;
+  text-align: left; background: none; border: 0; padding: 0; min-height: 0;
+  font: inherit; color: inherit; cursor: pointer;
+}
+.alert-main:hover { background: none; }
+.alert-top { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.alert-kind { font-size: var(--size-ui-sm); color: var(--text-meta); }
+.alert-who { font-size: var(--size-ui); font-weight: var(--weight-medium); color: var(--color-text); }
+.alert-why { font-size: var(--size-ui); color: var(--text-body); }
+.alert-where { font-size: var(--size-meta); color: var(--text-meta); overflow-wrap: anywhere; }
+.alert-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); }
+.alert-acts { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.alert-amt {
+  display: flex; flex-direction: column; align-items: flex-end; white-space: nowrap;
+  font-size: var(--size-ui); color: var(--color-text); font-variant-numeric: tabular-nums;
+}
+.alert-amt-sub { font-size: var(--size-meta); color: var(--text-meta); }
+
+/* Read rows are RECOLOURED, not faded. opacity would drag --text-body from
+   12.1:1 to well under the 4.5:1 floor; --text-meta is a real token that is
+   7.0:1 on both grounds and still reads as secondary. */
+.alert-list li[data-read="true"] .alert-who { color: var(--text-secondary); font-weight: var(--weight-regular); }
+.alert-list li[data-read="true"] .alert-why { color: var(--text-meta); }
+.alert-list li[data-read="true"] .alert-amt { color: var(--text-secondary); }
+
+/* ---- Charge Investigation List ------------------------------------------
+   Styled in the segmented control's language — the same track fill, hairline
+   ring and pill radius — so the panel reads as a sibling of the type tabs
+   rather than as a second, unrelated kind of surface.
+   ------------------------------------------------------------------------ */
+.pin-list { position: sticky; top: 76px; max-height: calc(100dvh - 110px); overflow-y: auto; }
+@media (max-width: 1100px) { .pin-list { position: static; max-height: none; } }
+.pin-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.pin-head h2 { margin: 0; }
+.pin-count {
+  min-width: 20px; height: 18px; padding: 0 6px; border-radius: 99px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: var(--size-tag); font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  background: var(--fill-selected); color: var(--color-accent);
+}
+.pin-items { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.pin-item {
+  display: flex; align-items: flex-start; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-md);
+  background: var(--fill-seg-track); box-shadow: inset 0 0 0 1px var(--color-divider);
+}
+.pin-item:hover { background: var(--fill-hover); }
+.pin-open {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;
+  text-align: left; background: none; border: 0; padding: 0; min-height: 0;
+  font: inherit; color: inherit; cursor: pointer;
+}
+.pin-open:hover { background: none; }
+.pin-top { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.pin-amt { font-variant-numeric: tabular-nums; font-weight: var(--weight-medium); color: var(--color-text); }
+.pin-who { font-size: var(--size-ui); font-weight: var(--weight-medium); color: var(--color-text); }
+.pin-meta { font-size: var(--size-meta); color: var(--text-meta); overflow-wrap: anywhere; }
+.pin-stale { font-size: var(--size-meta); color: var(--color-warn); margin-top: 2px; }
+.pin-remove { flex: none; }
+
+.rules { margin-top: var(--space-3); }
+.rules summary { cursor: pointer; font-size: var(--size-ui); color: var(--text-accent); }
+.rules dl { margin: var(--space-3) 0 0; }
+.rules dt { margin-top: var(--space-3); font-size: var(--size-ui); font-weight: var(--weight-medium); color: var(--color-text); }
+.rules dd { margin: 2px 0 0; font-size: var(--size-ui-sm); color: var(--text-secondary); }
+
+/* ============================================================================
+   SHARED SMALL TYPE
+   ========================================================================== */
+
+/* ============================================================================
+   SELECT — a listbox in the design system, not the operating system's
+   A native <select> paints its popup with platform chrome, which is the one
+   control on the page that cannot be tokenised. On a dense financial screen it
+   is the thing that looks bolted on, so this replaces it.
+   ========================================================================== */
+
+.sel { position: relative; display: inline-flex; }
+.sel-trigger {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 8px;
+  height: 32px; min-height: 32px; padding: 0 10px; min-width: 0;
+  font-family: var(--font-body); font-size: var(--size-ui); font-weight: var(--weight-medium);
+  color: var(--color-text); background: var(--color-surface);
+  border: 1px solid var(--color-divider); border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
+}
+.sel-trigger:hover { border-color: color-mix(in srgb, var(--color-text) 26%, transparent); background: var(--color-surface); }
+.sel-trigger[aria-expanded="true"] { border-color: var(--color-accent); }
+.sel-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel-chevron { color: var(--text-meta); transition: transform var(--dur-1) var(--ease); }
+.sel-trigger[aria-expanded="true"] .sel-chevron { transform: rotate(180deg); color: var(--color-accent); }
+
+.sel-list {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 50;
+  min-width: 100%; max-width: min(320px, 80vw); max-height: 320px; overflow-y: auto;
+  margin: 0; padding: var(--space-1); list-style: none;
+  background: var(--color-surface-raised); border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+.sel-opt {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  padding: 7px 9px; border-radius: calc(var(--radius-md) - 3px);
+  font-size: var(--size-ui); color: var(--text-body); cursor: pointer;
+}
+.sel-opt-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The drill-down's pager sits on the bottom edge of the drawer, so its list has
+   to open upward or it would render off the bottom of the viewport. */
+.dd-foot .sel-list { top: auto; bottom: calc(100% + 4px); }
+/* The highlight follows the keyboard AND the pointer, so there is exactly one
+   at a time and it means the same thing either way. */
+.sel-opt[data-active="true"] { background: var(--fill-hover); color: var(--color-text); }
+.sel-opt[aria-selected="true"] { color: var(--color-accent); }
+.sel-opt[aria-selected="true"][data-active="true"] { background: var(--fill-selected); }
+
+/* ============================================================================
+   UPDATE DATA — the one filled button, and its dialog
+   ========================================================================== */
+
+/* components.css reserves a solid accent fill for the active nav indicator,
+   progress fills and chart series, and ships exactly one filled button variant
+   for "the single most important action on a screen". This is that action — it
+   is what makes every other figure in the app current — and there is never a
+   second one visible.
+   The light ground swaps teal for coral deliberately: on that ground the teal
+   steps down to #135E5A, which reads as a muted slab rather than a call to
+   action, while coral at #BF533A stays warm and carries 4.65:1 against the
+   near-white text below. Both grounds are checked, not assumed. */
+.btn-update {
+  background: var(--color-accent); border-color: var(--color-accent);
+  color: var(--color-accent-900); font-weight: var(--weight-semibold);
+}
+.btn-update:hover  { background: var(--color-accent-300); border-color: var(--color-accent-300); }
+.btn-update:active { background: var(--color-accent-500); border-color: var(--color-accent-500); }
+
+[data-ground="light"] .btn-update {
+  background: var(--color-accent-2); border-color: var(--color-accent-2);
+  color: var(--color-accent-2-100);
+}
+[data-ground="light"] .btn-update:hover  { background: var(--color-accent-2-700); border-color: var(--color-accent-2-700); }
+[data-ground="light"] .btn-update:active { background: var(--color-accent-2-800); border-color: var(--color-accent-2-800); }
+
+.update-dialog { max-width: 640px; }
+.update-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+.update-step { margin-top: var(--space-6); }
+.update-step h3 {
+  margin: 0 0 var(--space-3); font-size: var(--size-h6);
+  text-transform: uppercase; letter-spacing: var(--tracking-eyebrow); color: var(--text-meta);
+}
+.update-summary { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3); }
+.update-summary .stat-pair { gap: var(--space-6); margin-top: var(--space-2); }
+.update-summary .stat-pair dd { font-size: var(--size-h5); }
+.update-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+
+.page-note { margin: 0 0 var(--space-3); font-size: var(--size-ui); color: var(--text-secondary); max-width: 90ch; }
+.fine { margin: var(--space-2) 0 0; font-size: var(--size-meta); color: var(--text-meta); }
+.empty-note { margin: var(--space-3) 0; font-size: var(--size-ui); color: var(--text-secondary); }
+.upload-panel { margin-top: var(--space-6); }

@@ -7,6 +7,7 @@ import { usdExact } from "@/lib/format";
    server's cap from drifting apart. The server still enforces it — this is
    only the affordance. */
 import { MAX_Q } from "@/lib/txnQuery";
+import Select from "@/components/Select";
 
 // Transaction drill-down panel. Reads /api/txn (server-only, service_role,
 // gated) — never fact_txn directly, which is private by design.
@@ -17,6 +18,10 @@ export type DrillFilters = {
   kpi_group?: string;
   account_label?: string;
   vendor?: string;
+  /** Restrict to Ramp card charges. Cannot stand alone — see filter_required. */
+  ramp?: boolean;
+  /** Ramp cardholder. Implies `ramp` server-side. */
+  person?: string;
 };
 
 export type DrillContext = {
@@ -43,6 +48,9 @@ type TxnRow = {
   account_label: string;
   kpi_group: string;
   amount: number;
+  /** Server-derived, from the PostgREST computed columns. */
+  is_ramp?: boolean;
+  ramp_cardholder?: string | null;
 };
 
 type Payload = {
@@ -60,7 +68,19 @@ type Sort = keyof typeof SORTABLE;
 
 const FOCUSABLE = 'button:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
 
-export default function TxnDrawer({ ctx, onClose }: { ctx: DrillContext; onClose: () => void }) {
+export default function TxnDrawer({
+  ctx,
+  onClose,
+  cardholders,
+  onPerson,
+}: {
+  ctx: DrillContext;
+  onClose: () => void;
+  /** Known Ramp cardholders. A description only becomes a link if it is one. */
+  cardholders?: Set<string>;
+  /** Jump to Card Spend for this person. */
+  onPerson?: (person: string) => void;
+}) {
   const [limit, setLimit] = useState(100);
   const [offset, setOffset] = useState(0);
   const [sort, setSort] = useState<Sort>("txn_date");
@@ -128,6 +148,8 @@ export default function TxnDrawer({ ctx, onClose }: { ctx: DrillContext; onClose
     if (f.kpi_group) qs.set("kpi_group", f.kpi_group);
     if (f.account_label) qs.set("account_label", f.account_label);
     if (f.vendor) qs.set("vendor", f.vendor);
+    if (f.ramp) qs.set("ramp", "1");
+    if (f.person) qs.set("person", f.person);
     if (q) qs.set("q", q);
     qs.set("limit", String(limit));
     qs.set("offset", String(offset));
@@ -187,6 +209,10 @@ export default function TxnDrawer({ ctx, onClose }: { ctx: DrillContext; onClose
     if (f.kpi_group) out.push(f.kpi_group);
     if (f.account_label) out.push(f.account_label);
     if (f.vendor) out.push(f.vendor);
+    /* A person already implies the Ramp restriction, so showing both chips
+       would read as two filters where there is one. */
+    if (f.person) out.push(f.person);
+    else if (f.ramp) out.push("Ramp card");
     return out;
   }, [ctx.filters]);
 
@@ -321,9 +347,15 @@ export default function TxnDrawer({ ctx, onClose }: { ctx: DrillContext; onClose
             <div className="dd-ok">Detail sums exactly to the dashboard figure.</div>
           )}
           {expected && !expected.compare && (
+            /* Was hard-coded to "comes from the top-150 vendor extract". That
+               was written for one caller and then rendered for EVERY
+               compare:false figure, asserting a provenance that was untrue of
+               the others — and, since agg_vendor is now rebuilt in full, no
+               longer true of the original caller either. Say only what holds
+               for any figure the drawer was told not to compare. */
             <div className="dd-note">
-              {expected.source} comes from the top-150 vendor extract, so it can understate the detail below. The
-              detail total is the authoritative figure for this filter.
+              {expected.source} is a summary figure that does not describe exactly this slice, so it is not
+              compared against the rows below. The detail total is the authoritative figure for this filter.
             </div>
           )}
           {data && data.truncated && (
@@ -383,17 +415,42 @@ export default function TxnDrawer({ ctx, onClose }: { ctx: DrillContext; onClose
                 </tr>
               </thead>
               <tbody>
-                {data.rows.map((r) => (
-                  <tr key={`${r.row_key}:${r.occurrence}`}>
-                    <td className="mono dd-nowrap">{r.txn_date}</td>
-                    <td className="t dd-nowrap">{r.txn_type || "—"}</td>
-                    <td className="mono dd-nowrap">{r.num || "—"}</td>
-                    <td className="t dd-clip" title={r.name || ""}>{r.name || "(no payee)"}</td>
-                    <td className="t dd-clip" title={r.description || ""}>{r.description || ""}</td>
-                    <td className="t dd-clip" title={r.account_label}>{r.account_label}</td>
-                    <td className="num">{usdExact(r.amount)}</td>
-                  </tr>
-                ))}
+                {data.rows.map((r) => {
+                  /* A Ramp charge's description carries the cardholder, so it is
+                     a way into that person's whole spending picture. The name
+                     comes from the SERVER's ramp_cardholder computed column and
+                     is only offered as a link when it is one of the cardholders
+                     the warehouse actually knows — a description that merely
+                     looks like a name leads nowhere and must stay plain text. */
+                  const person =
+                    r.is_ramp && r.ramp_cardholder && cardholders?.has(r.ramp_cardholder)
+                      ? r.ramp_cardholder
+                      : null;
+                  return (
+                    <tr key={`${r.row_key}:${r.occurrence}`}>
+                      <td className="mono dd-nowrap">{r.txn_date}</td>
+                      <td className="t dd-nowrap">{r.txn_type || "—"}</td>
+                      <td className="mono dd-nowrap">{r.num || "—"}</td>
+                      <td className="t dd-clip" title={r.name || ""}>{r.name || "(no payee)"}</td>
+                      <td className="t dd-clip" title={r.description || ""}>
+                        {person && onPerson ? (
+                          <button
+                            className="dd-link"
+                            onClick={() => onPerson(person)}
+                            title={`See ${person}'s Ramp card spending`}
+                            aria-label={`${r.description || person}. See ${person}'s Ramp card spending`}
+                          >
+                            {r.description || person}
+                          </button>
+                        ) : (
+                          r.description || ""
+                        )}
+                      </td>
+                      <td className="t dd-clip" title={r.account_label}>{r.account_label}</td>
+                      <td className="num">{usdExact(r.amount)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -411,14 +468,16 @@ export default function TxnDrawer({ ctx, onClose }: { ctx: DrillContext; onClose
             )}
           </div>
           <div className="dd-pager">
-            <label className="small" htmlFor="dd-limit">
-              Per page
-            </label>
-            <select id="dd-limit" value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
-              <option value={100}>100</option>
-              <option value={250}>250</option>
-              <option value={500}>500</option>
-            </select>
+            <span className="small">Per page</span>
+            <Select
+              id="dd-limit"
+              label="Rows per page"
+              value={String(limit)}
+              onChange={(v) => setLimit(Number(v))}
+              options={[100, 250, 500].map((n) => ({ value: String(n), label: String(n) }))}
+            />
+            {/* The list's own Escape handler stops propagation, so dismissing it
+                does not also close this dialog. */}
             <button onClick={() => setOffset(Math.max(0, offset - limit))} disabled={offset === 0 || busy}>
               ‹ Prev
             </button>

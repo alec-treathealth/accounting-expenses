@@ -9,6 +9,17 @@ Vercel + Supabase. Drag-and-drop a new export to update the data.
 - Reads pre-aggregated spend from Supabase (`agg_group_month`, `agg_account`,
   `agg_vendor`, `dim_facility`) with the **publishable** key and renders spend by
   KPI group, by facility, a monthly trend, top vendors, and a data-quality panel.
+- **Spend KPIs**: *COGS + Expenses* (everything, and the figure that ties to
+  `fact_txn`) and *Operating Expenses* (the same figure less Cost of Goods Sold),
+  plus *Cost per bed* — cumulative spend over the selected range divided by
+  licensed capacity. Cost per bed is per **BED, not per client**: there is no
+  census or occupancy anywhere in this database. All three come from one helper,
+  `lib/spend.ts`, so they cannot disagree.
+- **Card Spend** (`/intelligence`) ranks Ramp charges by cardholder. Six shared
+  exec/admin cards are hidden from that breakdown ONLY — they buy across many
+  entities, so a per-cardholder view misattributes them. The filter is applied at
+  the warehouse read (`EXCLUDED_RAMP_CARDHOLDERS` in `lib/ramp.ts`); no stored row
+  changes and their spend stays in every other view under their own names.
 - **Drag-and-drop ingest**: drop the QuickBooks CSV → it's parsed, classified and
   aggregated *in your browser* → the transaction rows are POSTed to `/api/ingest`
   → the server appends **only new** rows and rebuilds the aggregates.
@@ -48,8 +59,14 @@ comment of `app/api/mapping/route.ts` before relying on it.
 
 ## Scope & method (important)
 
-- **14 RES facilities only.** Management, real-estate, billing and marketing
-  entities in the export are excluded.
+- **RES facilities only.** Management, real-estate, billing and marketing
+  entities in the export are excluded. `dim_facility` is the roster (18 rows);
+  `lib/classify.ts` `FACILITY` is what actually admits a row to `fact_txn`. **Both
+  are needed and they must agree** — a facility missing from `FACILITY` has every
+  one of its rows parsed and then silently dropped, and no reconciliation
+  notices, because the dropped rows are absent from both sides of the tie-out.
+  That is exactly how Red Rock Behavioral Health sat at $0 while being fully
+  present in the source (see `0013`).
 - **Mapped by account name, not number.** Account numbers collide across the
   80+ entities in the consolidated file (e.g. `7040` is "Payroll Taxes" in some
   and "Income from Capital One" in others), so classification keys off the
@@ -57,8 +74,19 @@ comment of `app/api/mapping/route.ts` before relying on it.
   Income, equity draws and balance-sheet accounts are excluded.
 - **No double-count.** The report lists each transaction under both a funding and
   an expense account; only the expense/COGS side is summed.
-- The whole pipeline reconciles to the source report **to the penny**
-  (`npm run verify:parser`).
+- **Company vs account comes from the report's own structure, never from the
+  name.** Each section is closed by a `Total for <name>` row, so `lib/parse.ts`
+  tracks the nesting as a stack: depth 1 is the company, depth 2 the account.
+  The earlier rule — *"an account starts with a digit"* — read
+  `DON'T USE! Due To R&B Mgmt (deleted)` as a company and silently dropped every
+  Nashville Mental Health account after it, 6,381 rows, for months.
+  **A tie-out cannot catch this**: the dropped rows are missing from both sides,
+  so every aggregate still reconciled to the penny. The parser now records
+  structural anomalies and the upload dialog refuses a file that has any.
+- The whole pipeline reconciles to the source report **to the penny**, and
+  independently: every one of the 1,756 `(company, account)` sections is checked
+  against the subtotal the report itself prints, which does not depend on the
+  parser's own row loop being correct.
 
 ## Idempotent, cron-style ingest
 
@@ -131,7 +159,9 @@ for this PR.
 npm install
 cp .env.example .env.local   # fill in the values
 npm run dev
-npm run verify:parser        # proves the TS parser ties out to $19,709,887.26
+npm run verify:parser        # parser total matches a known export (scripts/verify.mts)
+npm run verify:spend         # the two spend cards + Cost per Bed, against live data
+npm run verify:ramp          # Ramp by cardholder, incl. the excluded shared cards
 ```
 
 ## Environment variables
@@ -148,7 +178,6 @@ must be present before the build.
 | `SUPABASE_SERVICE_ROLE_KEY` | **server, secret** | ingest + mapping writes + `fact_txn` reads (never commit / never expose) |
 | `TXN_DRILLDOWN_ENABLED` | server | must be `"true"` or `/api/txn` serves nothing |
 | `TXN_DRILLDOWN_TOKEN` | **server, secret** | optional shared secret for scripted drill-down reads |
-| `TXN_ALLOW_UNPROTECTED` | server | opt out of requiring a Deployment-Protection cookie (see above) |
 | `ADMIN_API_TOKEN` | **server, secret** | gates the `/api/mapping` write path; unset ⇒ `/admin` is read-only |
 
 ## Database
@@ -161,13 +190,36 @@ Apply the migrations in `supabase/migrations/` in order:
 - `0003_rebuild_from_map.sql` — makes `map_account_group` authoritative for
   `kpi_group` (previously the rebuild read the group off the fact row, so editing
   the taxonomy did nothing).
+- `0013_dim_facility_red_rock.sql` — adds Red Rock Behavioral Health to the
+  roster. Pair it with the `FACILITY` entry in `lib/classify.ts` or it does
+  nothing.
+- `0014_dim_facility_beds.sql` — `dim_facility.beds`, licensed capacity for the
+  Cost per Bed KPI. **Nullable, and the NULL means something**: no bed count on
+  file. Readers must disclose such a facility, never treat it as zero.
+
+- `0015_rebuild_aggregates_where_true.sql` — the `authenticator` role preloads
+  `safeupdate`, which rejects an unqualified `DELETE`. Every delete in
+  `rebuild_aggregates()` is unqualified by design, so the RPC failed with
+  *"DELETE requires a WHERE clause"* — meaning `/api/ingest` phase `finalize`,
+  and the `/admin` rebuild button, could not complete. `where true` satisfies the
+  hook and changes nothing else.
+- `0016_revoke_agg_ramp_write_grants.sql` — `agg_ramp_person`, `agg_ramp_vendor`
+  and `app_access` carried table-level write grants for `anon`/`authenticated`
+  that no other table has. RLS already refused the writes; this removes the grant
+  behind it.
+- `0017_dim_facility_notes_after_parser_fix.sql` — corrects the Nashville note,
+  which recorded a parser bug as an accounting fact, and marks St. Louis as
+  carried-forward and frozen.
 
 ## Security notes
 
 - The service_role key is used **only** in `app/api/ingest/route.ts` and
   `app/api/txn/route.ts` (both server-only, `runtime = "nodejs"`) and is never
   sent to the browser or committed (`.gitignore` covers `.env*`).
-- The aggregate tables are currently world-readable via the publishable key (a
-  deliberate project decision). Gate behind Supabase Auth if that changes.
+- The aggregate tables are **not** world-readable. `0005_auth_rls.sql` put every
+  one of them behind RLS requiring an authenticated session *and* membership of
+  the `app_access` invite list, checked by the `has_dashboard_access()`
+  SECURITY DEFINER function. The publishable key alone reads nothing;
+  `npm run verify:lockout` asserts that.
 - `fact_txn` is **not** world-readable and must stay that way: no `anon` or
   `authenticated` policy. Transaction detail is served only by `/api/txn`.

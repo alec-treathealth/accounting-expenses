@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseServer";
 import { authorizeTxnRequest } from "@/lib/txnAuth";
+import { getAuthorizedUser } from "@/lib/supabaseServerAuth";
 import {
   DEFAULT_LIMIT,
   MAX_LIMIT,
@@ -30,7 +31,7 @@ function fail(status: number, code: string, message: string) {
 }
 
 export async function GET(req: NextRequest) {
-  const auth = authorizeTxnRequest(req);
+  const auth = await authorizeTxnRequest(req, async () => (await getAuthorizedUser()) !== null);
   if (!auth.ok) return fail(auth.status, auth.code, auth.message);
 
   let db: TxnDb;
@@ -60,6 +61,12 @@ export async function GET(req: NextRequest) {
           kpi_group: f.kpi_group,
           account_label: f.account_label,
           vendor: f.vendor,
+          /* Echoed because `ramp` can be set by IMPLICATION (a person implies
+             it, see parseTxnParams), so what the client sent and what actually
+             ran are not always the same thing. The drawer shows these as
+             chips. */
+          ramp: f.ramp,
+          person: f.person,
           /* Echo the SANITIZED term, not what was typed: the client shows this
              so a user whose punctuation was stripped can see what actually ran.
              `searched` tells the drawer that `totals` describes a SUBSET, so it

@@ -1,0 +1,108 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { getSupabaseBrowser } from "@/lib/supabaseBrowser";
+
+export default function LoginForm() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+
+    const { error } = await getSupabaseBrowser().auth.signInWithPassword({ email, password });
+    if (error) {
+      /* Deliberately does not distinguish "unknown email" from "wrong password":
+         that difference tells an attacker which addresses have accounts. */
+      setError("That email and password combination was not recognised.");
+      setBusy(false);
+      return;
+    }
+
+    /* `next` is attacker-influenceable (it comes from the query string), so only
+       same-ORIGIN destinations are honoured — otherwise this is an open redirect.
+
+       RESOLVE IT, DO NOT PATTERN-MATCH IT. The previous guard was
+       `raw.startsWith("/") && !raw.startsWith("//")`, which blocks the
+       protocol-relative form and nothing else: "/\evil.com" passes it, and
+       browsers resolve a backslash exactly like a slash, so
+       new URL("/\evil.com", "https://app.example.com") is "https://evil.com/".
+       useSearchParams() percent-decodes, so ?next=/%5Cevil.com reaches it, and
+       Next's router hard-navigates when the origin differs. Since this login
+       page is the app's only boundary, that is a credential-harvest flow: the
+       victim signs in on the genuine page and is thrown to the attacker's.
+
+       Letting the URL parser decide removes the whole class — there is no
+       encoding trick that survives a same-origin comparison of the RESOLVED url.
+       The try/catch matters: new URL("//[", origin) throws, and an uncaught
+       throw here would fire AFTER a successful sign-in and strand the user. */
+    const raw = params.get("next") || "/";
+    let next = "/";
+    try {
+      const u = new URL(raw, window.location.origin);
+      if (u.origin === window.location.origin) next = u.pathname + u.search + u.hash;
+    } catch {
+      /* unparseable — fall back to the dashboard root */
+    }
+    router.replace(next);
+    router.refresh();
+  }
+
+  /* Set by middleware when a valid account is not on the invite list. Without
+     this the redirect looks like the password failed, and the person retypes a
+     correct password forever. */
+  const denied = params.get("denied") === "1";
+
+  return (
+    <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
+      {denied && !error && (
+        <p role="alert" style={{ color: "var(--color-danger)", margin: 0, fontSize: "var(--size-ui-sm)" }}>
+          That account does not have access to this dashboard. Ask an administrator to add you.
+        </p>
+      )}
+      <label className="field">
+        <span>Email</span>
+        <input
+          className="input"
+          type="email"
+          autoComplete="email"
+          autoFocus
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          aria-invalid={error ? true : undefined}
+        />
+      </label>
+
+      <label className="field">
+        <span>Password</span>
+        <input
+          className="input"
+          type="password"
+          autoComplete="current-password"
+          required
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          aria-invalid={error ? true : undefined}
+        />
+      </label>
+
+      {error && (
+        <p role="alert" style={{ color: "var(--color-danger)", margin: 0, fontSize: "var(--size-ui-sm)" }}>
+          {error}
+        </p>
+      )}
+
+      <button type="submit" className="btn btn-solid btn-block" disabled={busy}>
+        {busy ? "Signing in…" : "Sign in"}
+      </button>
+    </form>
+  );
+}

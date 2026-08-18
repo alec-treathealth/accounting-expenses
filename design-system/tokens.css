@@ -95,6 +95,22 @@
   --color-info: #66C3EB;            /* 8.7:1                                */
   --color-muted: var(--color-neutral-500);
 
+  /* ---- Brand mark ------------------------------------------------------ */
+  /* The TreatHealthOS logo is a FIXED ASSET, not a themed component, so its
+     five colours are pinned here rather than pointed at ramp steps. Three of
+     them happen to equal accent-600/700/800 today — that is history, not a
+     dependency, and a future ramp adjustment must not silently redraw the
+     brand. The two corals have no ramp equivalent at all: #E2674F sits between
+     accent-2-500 and -600.
+
+     These are the ONLY logo colours in the codebase. The mark's frame is drawn
+     in currentColor so it still follows the ground; see components/Logo.tsx. */
+  --logo-teal: #1C8B82;
+  --logo-teal-deep: #135E5A;
+  --logo-coral: #E2674F;
+  --logo-coral-light: #F0917C;
+  --logo-tile: #0E3A3A;
+
   /* ---- Structure ------------------------------------------------------- */
   --color-divider: color-mix(in srgb, var(--color-text) 16%, transparent);
   --color-section: #0E3A3A;

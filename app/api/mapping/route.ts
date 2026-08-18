@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabaseServer";
+import { getAuthorizedUser } from "@/lib/supabaseServerAuth";
 import { GROUP_ORDER } from "@/lib/format";
 
 // Node runtime (not edge): this route uses the service_role key and node:crypto.
@@ -85,6 +86,16 @@ function checkAuth(req: NextRequest): Gate {
 // renders from, so the two can never drift apart.
 const VALID_GROUPS = new Set(GROUP_ORDER);
 
+// A session is now NECESSARY for both reads and writes here. It is not
+// SUFFICIENT for writes: checkAuth()/ADMIN_API_TOKEN still runs after this and
+// remains the second factor on the destructive path.
+function needsSession() {
+  return NextResponse.json(
+    { error: "unauthenticated", message: "Sign in to view or edit account mappings." },
+    { status: 401 },
+  );
+}
+
 function fail(g: Extract<Gate, { ok: false }>) {
   return NextResponse.json({ error: g.error }, { status: g.status });
 }
@@ -111,6 +122,8 @@ function admin() {
 // read for itself -- fact_txn is private (RLS on, no anon policy), and its row
 // count is what decides whether a rebuild would do anything at all.
 export async function GET(req: NextRequest) {
+  if (!(await getAuthorizedUser())) return needsSession();
+
   const gate = checkAuth(req);
   if (!gate.ok) return fail(gate);
 
@@ -134,6 +147,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!(await getAuthorizedUser())) return needsSession();
+
   const gate = checkAuth(req);
   if (!gate.ok) return fail(gate);
 
