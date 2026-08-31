@@ -28,6 +28,26 @@
  */
 export const COGS_GROUP = "Cost of Goods Sold";
 
+/** Demand generation, not a cost of running a bed. See PER_BED_EXCLUDED. */
+export const ADVERTISING_GROUP = "Advertising & Marketing";
+
+/**
+ * The groups cost per bed does NOT divide by capacity.
+ *
+ * The ratio answers "what does it cost to run a licensed bed for this period",
+ * so its numerator is the OPERATING expense of running one — not the whole
+ * COGS + Expenses figure the top card reports.
+ *
+ * - Cost of Goods Sold scales with what was delivered, not with capacity.
+ * - Advertising & Marketing buys admissions org-wide; booking it against the
+ *   beds of whichever entity happened to carry the invoice reads as a cost of
+ *   operating those beds when it is a cost of filling them.
+ *
+ * Both stay in every other figure on the dashboard and in every org-wide total.
+ * This is a definition of ONE ratio, not a reclassification of spend.
+ */
+export const PER_BED_EXCLUDED: readonly string[] = [COGS_GROUP, ADVERTISING_GROUP];
+
 export type SpendRow = { kpi_group: string; amount: number; n: number };
 
 export type SpendSplit = {
@@ -67,17 +87,20 @@ export type FacilitySpendRow = SpendRow & { facility: string };
 export type BedCount = { facility: string; beds: number | null };
 
 export type CostPerBed = {
-  /** Total spend / total beds, or null when nothing can be divided. */
+  /** Eligible spend / total beds, or null when nothing can be divided. */
   perBed: number | null;
-  /** Numerator: COGS + operating expense for the counted facilities ONLY. */
+  /** Numerator: operating expense LESS marketing, counted facilities ONLY. */
   amount: number;
+  /** What PER_BED_EXCLUDED removed from those same facilities, so the card can
+   *  disclose the gap between this figure and the total spend cards. */
+  excluded: number;
   /** Denominator: licensed beds for those same facilities. */
   beds: number;
   /** Facilities inside both the filter and the ratio. */
   counted: string[];
-  /** In view with spend, but no bed count on file — disclosed, never dropped. */
+  /** In view with eligible spend, but no bed count — disclosed, never dropped. */
   spendWithoutBeds: string[];
-  /** Has a bed count, but no spend in this view — disclosed, never $0. */
+  /** Has a bed count, but nothing this ratio counts — disclosed, never $0. */
   bedsWithoutSpend: string[];
 };
 
@@ -88,6 +111,12 @@ export type CostPerBed = {
  * in this database, so this cannot be a per-client figure and must not be
  * labelled as one — a bed that sat empty all month counts the same as a full
  * one.
+ *
+ * THE NUMERATOR IS OPERATING EXPENSE LESS MARKETING — see PER_BED_EXCLUDED —
+ * so it does NOT tie to the "COGS + Expenses" card above it, by design. The
+ * card states the definition; anything that prints this figure must, or a
+ * reader will reasonably try to reconcile two numbers that are not the same
+ * measure.
  *
  * THE NUMERATOR AND DENOMINATOR ARE SCOPED IDENTICALLY, which is the whole
  * difficulty. A facility with no bed count contributes to NEITHER: counting its
@@ -113,12 +142,23 @@ export function costPerBed(
     if (c.beds != null && c.beds > 0) beds.set(c.facility, c.beds);
   }
 
+  /* ELIGIBLE spend only. Excluded groups are dropped HERE, at the one place
+     the numerator is built, so "does this facility count" and "how much does
+     it contribute" can never be answered from different sets — a facility
+     whose only spend is COGS or marketing has nothing to divide and falls
+     through to the bedsWithoutSpend disclosure below, exactly like one with no
+     rows at all. `excludedTotal` is tallied alongside, from the same pass. */
   const spend = new Map<string, number>();
-  for (const r of rows) spend.set(r.facility, (spend.get(r.facility) ?? 0) + r.amount);
+  const excludedByFacility = new Map<string, number>();
+  for (const r of rows) {
+    const bucket = PER_BED_EXCLUDED.includes(r.kpi_group) ? excludedByFacility : spend;
+    bucket.set(r.facility, (bucket.get(r.facility) ?? 0) + r.amount);
+  }
 
   const counted: string[] = [];
   const spendWithoutBeds: string[] = [];
   let amount = 0;
+  let excludedTotal = 0;
   let bedTotal = 0;
 
   /* ONE RULE FOR "NO SPEND". A facility can have no rows at all, or rows that
@@ -132,18 +172,20 @@ export function costPerBed(
     if (beds.has(facility)) {
       counted.push(facility);
       amount += amt;
+      excludedTotal += excludedByFacility.get(facility) ?? 0;
       bedTotal += beds.get(facility)!;
     } else {
       spendWithoutBeds.push(facility);
     }
   }
 
-  /* A facility with beds and no spend is the other half of the same disclosure.
-     It is NOT folded into the ratio as a zero: that would divide real spend by
-     capacity that reported nothing and quietly understate every other facility. */
+  /* A facility with beds and nothing this ratio counts is the other half of the
+     same disclosure. It is NOT folded into the ratio as a zero: that would
+     divide real spend by capacity that reported nothing and quietly understate
+     every other facility. */
   const bedsWithoutSpend: string[] = [];
   for (const facility of beds.keys()) {
-    if ((spend.get(facility) ?? 0) !== 0) continue; // genuinely spent something
+    if ((spend.get(facility) ?? 0) !== 0) continue; // has eligible spend
     if (inView && !inView(facility)) continue;
     bedsWithoutSpend.push(facility);
   }
@@ -151,6 +193,7 @@ export function costPerBed(
   return {
     perBed: bedTotal > 0 ? r2(amount / bedTotal) : null,
     amount: r2(amount),
+    excluded: r2(excludedTotal),
     beds: bedTotal,
     counted: counted.sort(),
     spendWithoutBeds: spendWithoutBeds.sort(),

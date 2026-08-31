@@ -195,9 +195,15 @@ export default function Dashboard() {
                     perBed.counted.length === 1 ? "facility" : "facilities"
                   }`}
           </div>
-          {/* Licensed capacity, never occupancy — there is no census in this
-              database, so this must not be read as cost per client. */}
-          <div className="dd-hint">Per licensed bed — not per client</div>
+          {/* TWO things a reader must know before trusting this number, and
+              neither is inferable from the figure: it divides by licensed
+              capacity, not occupancy (there is no census in this database, so
+              it is not cost per client); and its numerator is operating
+              expense less marketing, so it deliberately does NOT reconcile to
+              the COGS + Expenses card beside it. */}
+          <div className="dd-hint">
+            Operating expenses excl. marketing · per licensed bed, not per client
+          </div>
         </div>
 
         <div className="card kpi ths-rise" style={rise(3)}>
@@ -240,8 +246,20 @@ export default function Dashboard() {
       {/* Cost per bed's two disclosure states. A facility on either list is
           absent from the ratio ON PURPOSE, and naming it is the difference
           between a caveat and a silently wrong denominator. */}
-      {got.gm && got.dim && (perBed.spendWithoutBeds.length > 0 || perBed.bedsWithoutSpend.length > 0) && (
+      {got.gm && got.dim &&
+        (perBed.excluded !== 0 || perBed.spendWithoutBeds.length > 0 || perBed.bedsWithoutSpend.length > 0) && (
         <p className="fine">
+          {/* The gap between this ratio and the total-spend cards, in dollars.
+              Without it a reader can only discover the difference by failing to
+              reconcile two numbers that were never the same measure. */}
+          {perBed.excluded !== 0 && perBed.perBed !== null && (
+            <>
+              <b>Cost per bed excludes {usd(perBed.excluded)}</b> of cost of goods sold and
+              Advertising &amp; Marketing across the {perBed.counted.length} counted{" "}
+              {perBed.counted.length === 1 ? "facility" : "facilities"} — it measures the operating
+              cost of a licensed bed, so it does not reconcile to COGS + Expenses above.{" "}
+            </>
+          )}
           {perBed.spendWithoutBeds.length > 0 && (
             <>
               <b>No bed count on file:</b> {perBed.spendWithoutBeds.join(", ")} — their spend is in every

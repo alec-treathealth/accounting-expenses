@@ -15,7 +15,7 @@
 //   npm run verify:spend
 
 import { restAll, cents, money } from "./supabase.mts";
-import { COGS_GROUP, costPerBed, splitSpend, type BedCount, type FacilitySpendRow } from "../lib/spend.ts";
+import { ADVERTISING_GROUP, COGS_GROUP, PER_BED_EXCLUDED, costPerBed, splitSpend, type BedCount, type FacilitySpendRow } from "../lib/spend.ts";
 
 let failures = 0;
 const ok = (cond: boolean, label: string, detail = "") => {
@@ -83,9 +83,12 @@ ok(cpb.beds > 0, "the denominator is a real bed count", `${cpb.beds} beds`);
 ok(Math.abs((cpb.perBed ?? 0) * cpb.beds - cpb.amount) < 1,
    "cost per bed times beds returns the numerator", `${money(cents((cpb.perBed ?? 0) * cpb.beds))} vs ${money(cents(cpb.amount))}`);
 
-/* The trap this exists to catch: counting a facility's spend against everyone
-   else's beds. Every facility must be in the ratio, or on a disclosure list. */
-const withSpend = new Set(rows.filter((r) => r.amount !== 0).map((r) => r.facility));
+/* ELIGIBLE spend — the numerator's own definition (operating expense less
+   marketing), not total spend. Using total here would report a facility whose
+   only activity is COGS or marketing as "silently dropped" when it is in fact
+   correctly disclosed as having nothing this ratio counts. */
+const eligible = rows.filter((r) => !PER_BED_EXCLUDED.includes(r.kpi_group));
+const withSpend = new Set(eligible.filter((r) => r.amount !== 0).map((r) => r.facility));
 const unaccounted = [...withSpend].filter(
   (f) => !cpb.counted.includes(f) && !cpb.spendWithoutBeds.includes(f),
 );
@@ -93,12 +96,41 @@ ok(unaccounted.length === 0,
    "every facility with spend is either counted or disclosed, never silently dropped",
    unaccounted.length ? unaccounted.join(", ") : `${withSpend.size} facilities`);
 
-const countedCents = rows
+const countedCents = eligible
   .filter((r) => cpb.counted.includes(r.facility))
   .reduce((s, r) => s + cents(r.amount), 0);
 ok(countedCents === cents(cpb.amount),
-   "the numerator is exactly the counted facilities' spend — no one else's",
+   "the numerator is exactly the counted facilities' eligible spend — no one else's",
    `${money(countedCents)}`);
+
+/* THE DEFINITION ITSELF. Cost per bed is operating expense LESS marketing, so
+   neither excluded group may reach the numerator — and the disclosed
+   `excluded` must account for the whole difference from total spend, or the
+   card's "excludes $X" line understates what was taken out. */
+const excludedCents = rows
+  .filter((r) => cpb.counted.includes(r.facility) && PER_BED_EXCLUDED.includes(r.kpi_group))
+  .reduce((s, r) => s + cents(r.amount), 0);
+ok(excludedCents === cents(cpb.excluded),
+   "the disclosed exclusion is exactly the COGS + marketing removed from the counted facilities",
+   money(excludedCents));
+
+const countedTotalCents = rows
+  .filter((r) => cpb.counted.includes(r.facility))
+  .reduce((s, r) => s + cents(r.amount), 0);
+ok(cents(cpb.amount) + cents(cpb.excluded) === countedTotalCents,
+   "numerator + disclosed exclusion equals the counted facilities' total spend",
+   `${money(cents(cpb.amount))} + ${money(cents(cpb.excluded))} = ${money(countedTotalCents)}`);
+ok(cents(cpb.amount) < countedTotalCents,
+   "the numerator is genuinely smaller than total spend — the exclusion is doing something",
+   `${money(cents(cpb.amount))} vs ${money(countedTotalCents)}`);
+
+/* A&M specifically, because that is the change this definition exists for. */
+const advCents = rows
+  .filter((r) => cpb.counted.includes(r.facility) && r.kpi_group === ADVERTISING_GROUP)
+  .reduce((s, r) => s + cents(r.amount), 0);
+ok(advCents > 0, "there is marketing spend to exclude in the first place", money(advCents));
+ok(cents(cpb.amount) + advCents <= countedTotalCents,
+   "no marketing dollar survives in the numerator", money(advCents));
 
 const bedMap = new Map(beds.filter((b) => b.beds != null).map((b) => [b.facility, b.beds!]));
 const countedBeds = cpb.counted.reduce((s, f) => s + (bedMap.get(f) ?? 0), 0);
@@ -127,6 +159,35 @@ ok(poisoned.perBed === null && poisoned.spendWithoutBeds.includes("X"),
 const noSpend = costPerBed([], [{ facility: "Y", beds: 10 }]);
 ok(noSpend.perBed === null && noSpend.bedsWithoutSpend.includes("Y"),
    "a facility with beds and no spend reports as such rather than $0 per bed");
+
+/* A facility whose ONLY activity is excluded must not enter the ratio as a
+   zero — that would add its beds to the denominator and nothing to the
+   numerator, understating every other facility. It is disclosed instead. */
+const marketingOnly = costPerBed(
+  [
+    { facility: "Z", kpi_group: ADVERTISING_GROUP, amount: 50_000, n: 3 },
+    { facility: "Z", kpi_group: COGS_GROUP, amount: 10_000, n: 1 },
+  ],
+  [{ facility: "Z", beds: 10 }],
+);
+ok(marketingOnly.perBed === null && marketingOnly.beds === 0 && marketingOnly.bedsWithoutSpend.includes("Z"),
+   "a facility with only COGS and marketing contributes no beds and no spend");
+
+/* And the ordinary case, by hand: 100k payroll + 40k marketing + 10k COGS over
+   10 beds is 10k/bed, not 15k/bed. */
+const mixed = costPerBed(
+  [
+    { facility: "M", kpi_group: "Payroll Expenses", amount: 100_000, n: 5 },
+    { facility: "M", kpi_group: ADVERTISING_GROUP, amount: 40_000, n: 2 },
+    { facility: "M", kpi_group: COGS_GROUP, amount: 10_000, n: 1 },
+  ],
+  [{ facility: "M", beds: 10 }],
+);
+ok(mixed.perBed === 10_000 && mixed.amount === 100_000 && mixed.excluded === 50_000,
+   "a mixed facility divides operating-less-marketing by beds",
+   `$${mixed.perBed}/bed, numerator $${mixed.amount}, excluded $${mixed.excluded}`);
+ok(PER_BED_EXCLUDED.includes(ADVERTISING_GROUP) && PER_BED_EXCLUDED.includes(COGS_GROUP),
+   "both groups are named in one exported constant the UI and this file share");
 
 console.log(`\n${failures === 0 ? "ALL CHECKS PASSED" : failures + " CHECK(S) FAILED"}`);
 process.exit(failures === 0 ? 0 : 1);
