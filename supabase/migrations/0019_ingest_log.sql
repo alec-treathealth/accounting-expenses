@@ -32,8 +32,12 @@ create policy ro_ingest_log on public.ingest_log
 revoke all on public.ingest_log from public, anon;
 grant select on public.ingest_log to authenticated;
 
--- Backfill the upload that predates this table (2026-08-31 ~11:25 AM Pacific),
--- so the tag has a truthful value from the first deploy rather than showing
--- nothing until the next upload.
+-- Backfill the ingests that predate this table with the one fact the warehouse
+-- already holds: when the newest surviving row landed (fact_txn.loaded_at).
+-- Derived at apply time, never a literal — a timestamp written here by hand is
+-- a guess, and goes stale the moment another upload lands before the migration
+-- runs. HAVING guards the empty-warehouse case: no rows, no stamp.
 insert into public.ingest_log (uploaded_at, source)
-values ('2026-08-31 11:25:00-07', 'csv-upload (backfilled)');
+select max(loaded_at), 'csv-upload (backfilled from fact_txn.loaded_at)'
+  from public.fact_txn
+having max(loaded_at) is not null;

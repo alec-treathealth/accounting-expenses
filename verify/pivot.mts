@@ -64,9 +64,9 @@ console.log(`source rows: ${rows.length}, grand $${GRAND.toFixed(2)}, n=${GRAND_
 /* A deliberate tripwire: it fails whenever the warehouse total moves, so a
    change has to be confirmed rather than absorbed. Update it ONLY alongside an
    approved ingest, and say in the commit what moved.
-     29,826,050.36  Aug 31 2026 export through month end, uploaded by the owner
-                    Aug 31 ~11:25 AM Pacific. August is a complete month as of
-                    this cut.
+     29,826,050.36  Aug 31 2026 export through month end (newest
+                    fact_txn.loaded_at: 2026-08-31 07:34 UTC). August is a
+                    complete month as of this cut.
      27,457,010.09  Aug 18 2026 export, section-stack parser, + carried-forward
                     St. Louis. Every earlier figure on this line was produced by
                     the parser that misread accounts as companies and dropped
