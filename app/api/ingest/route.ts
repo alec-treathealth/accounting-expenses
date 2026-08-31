@@ -77,13 +77,6 @@ export async function POST(req: NextRequest) {
     const { error: rbErr } = await sb.rpc("rebuild_aggregates");
     if (rbErr) return NextResponse.json({ error: rbErr.message }, { status: 500 });
 
-    /* Stamp the refresh AFTER the rebuild succeeds — the top bar's freshness
-       tag reads the newest row, and it must say "when the figures changed",
-       never "when someone tried". Non-fatal on failure: a missing stamp is a
-       stale tag, not a broken upload, and the rebuild is already committed. */
-    const { error: logErr } = await sb.from("ingest_log").insert({ source: "csv-upload" });
-    if (logErr) console.error("[ingest] could not stamp ingest_log:", logErr.message);
-
     const months: string[] = body.months || [];
     const uploadedKeys: string[] = body.keys || []; // "row_key:occurrence"
     let orphans: any[] = [];

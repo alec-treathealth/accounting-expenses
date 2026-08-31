@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
     /* The three reads are independent, so they are issued together. The feed is
        the slowest (percentile_cont over 24,226 rows, ~0.6s); waiting for the two
        tiny table reads afterwards would add round trips for nothing. */
-    const [feed, readRes, pinRes] = await Promise.all([
+    const [feed, readRes, pinRes, loadedRes] = await Promise.all([
       loadAlerts(db),
       /* .limit() does NOT raise PostgREST's db-max-rows (1000 here) — it only
          lowers it, silently. 278 rows today and one per alert a person marks
@@ -80,9 +80,19 @@ export async function GET(req: NextRequest) {
          alerts reappear as unread. Ordered + ranged so the cap is explicit. */
       db.from("alert_read").select("alert_key").eq("email", email).order("alert_key", { ascending: true }).range(0, 999),
       db.from("alert_pin").select("*").order("pinned_at", { ascending: false }).limit(500),
+      /* The top bar's freshness tag: when the newest surviving row landed.
+         Rides along here because the provider fetches this route eagerly on
+         every load — the one scalar does not earn its own round trip. It must
+         come from the server: fact_txn is RLS-on/zero-policies (0005), so the
+         browser can never read loaded_at itself. */
+      db.from("fact_txn").select("loaded_at").order("loaded_at", { ascending: false }).limit(1),
     ]);
     if (readRes.error) throw new Error(readRes.error.message);
     if (pinRes.error) throw new Error(pinRes.error.message);
+    /* Non-fatal: a missing timestamp is a tag that does not render, not a
+       broken alerts feed. Null also when the warehouse is empty. */
+    if (loadedRes.error) console.error("[api/alerts] loaded_at read failed:", loadedRes.error.message);
+    const updatedAt = loadedRes.data?.[0]?.loaded_at ?? null;
 
     if (feed.dropped > 0) console.warn(`[api/alerts] dropped ${feed.dropped} malformed alert row(s)`);
 
@@ -97,6 +107,7 @@ export async function GET(req: NextRequest) {
         alerts: feed.alerts,
         read: (readRes.data ?? []).map((r) => String(r.alert_key)),
         pins,
+        updated_at: updatedAt,
       },
       { headers: NO_STORE },
     );

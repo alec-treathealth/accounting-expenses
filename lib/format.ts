@@ -82,7 +82,7 @@ const MONTH_NAMES = [
 export const monthName = (period: string): string =>
   MONTH_NAMES[Number(period.slice(5, 7)) - 1] ?? period;
 
-/** An ingest_log timestamp as "Aug 31, 2026, 11:25 AM PDT" — always Pacific,
+/** A warehouse timestamp as "Aug 31, 2026, 12:34 AM PDT" — always Pacific,
  *  the business's zone, never the viewer's, so two people reading the tag see
  *  the same freshness. A full timestamp (unlike a date-only string) parses as
  *  an absolute instant, so `new Date(iso)` is safe here. */

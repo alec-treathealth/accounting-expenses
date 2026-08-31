@@ -125,8 +125,9 @@ type Ctx = {
      property of the filter, not of the current view. */
   rampWithheld: { amount: number; n: number; people: number };
 
-  /** ISO timestamp of the newest ingest_log row — when the warehouse last
-   *  changed. Null until the read lands (or if no ingest was ever logged). */
+  /** The newest fact_txn.loaded_at, as reported by /api/alerts — when data
+   *  last landed in the warehouse. Null until that read arrives, and null
+   *  when the warehouse is empty; the top bar renders no tag for null. */
   updatedAt: string | null;
 };
 
@@ -354,6 +355,8 @@ export default function WarehouseProvider({
             const rows = Array.isArray(body?.alerts) ? body.alerts : [];
             setReadState(new Set(Array.isArray(body?.read) ? body.read.map(String) : []));
             setPins((Array.isArray(body?.pins) ? body.pins : []).map(parsePin).filter(Boolean) as Pin[]);
+            // The freshness tag rides along with this response — see /api/alerts.
+            setUpdatedAt(typeof body?.updated_at === "string" ? body.updated_at : null);
             land("alerts", rows.map(parseAlert).filter(Boolean) as Alert[]);
           })
           .catch(fail("alerts"));
@@ -370,33 +373,6 @@ export default function WarehouseProvider({
       loaders[key]();
     }
   }, [tick, reloadKey]);
-
-  /* The freshness tag's source of truth: the newest ingest_log row, stamped by
-     the ingest route after every successful rebuild. Its own effect, keyed on
-     reloadKey alone — the loaders' effect refires on every dataset request
-     (tick), which would re-read a value that only changes when data lands. Not
-     a DatasetKey either: nothing renders rows from it, and a failure must not
-     raise the load-error banner over figures that loaded fine — the top bar
-     simply shows no tag. reload() after an upload refetches it with the rest. */
-  useEffect(() => {
-    let cancelled = false;
-    getSupabaseBrowser()
-      .from("ingest_log")
-      .select("uploaded_at")
-      .order("uploaded_at", { ascending: false })
-      .limit(1)
-      .then(({ data: rows, error }) => {
-        if (cancelled) return;
-        if (error) {
-          console.error("[warehouse] ingest_log read failed", error);
-          return;
-        }
-        setUpdatedAt(rows?.[0]?.uploaded_at ?? null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [reloadKey]);
 
   // --- derived filter lists -------------------------------------------------
 
