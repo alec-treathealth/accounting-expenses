@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSupabaseBrowser } from "@/lib/supabaseBrowser";
 import { monthName } from "@/lib/format";
+import { DATA_UPDATED_AT } from "@/lib/dataMeta";
 import { partialMonth } from "@/lib/pivot";
 import { useWarehouse } from "@/components/WarehouseProvider";
 import Icon from "@/components/Icon";
@@ -59,6 +60,7 @@ export default function TopBar({
       <div className="topbar-title">
         <h1>{title}</h1>
         <p className="topbar-blurb">{blurb}</p>
+        <p className="topbar-updated">Data last updated at {DATA_UPDATED_AT}</p>
       </div>
 
       <div className="topbar-controls">
