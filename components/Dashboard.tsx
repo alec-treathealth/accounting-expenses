@@ -3,7 +3,6 @@
 import { useMemo } from "react";
 import { usd, usdShort, pct, GROUP_COLOR, GROUP_ORDER, MONTH_LABEL, monthName } from "@/lib/format";
 import { avgPerFullMonth, partialMonth } from "@/lib/pivot";
-import { DATA_UPDATED_AT } from "@/lib/dataMeta";
 import { costPerBed, splitSpend } from "@/lib/spend";
 import { useDatasets, useWarehouse } from "@/components/WarehouseProvider";
 import { Sk, SkRows, rise } from "@/components/Skeleton";
@@ -124,10 +123,6 @@ export default function Dashboard() {
         {rosterCount} residential facilities · every figure below reconciles to the QuickBooks export to
         the penny.
       </p>
-
-      <div className="banner">
-        <b>Data updated at {DATA_UPDATED_AT}.</b> Totals reconcile to the source report to the penny.
-      </div>
 
       <div className="grid kpis">
         {/* The full figure keeps the drill-down, because it is the one that ties
