@@ -12,6 +12,7 @@ import {
 import { getSupabaseBrowser } from "@/lib/supabaseBrowser";
 import { parseAlert, parsePin, type Alert, type Pin } from "@/lib/alerts";
 import { excludeRampCardholders, onlyExcludedRampCardholders, type RampPersonRow, type RampVendorRow } from "@/lib/ramp";
+import { msUntilPacificMidnight, todayPacific } from "@/lib/pivot";
 import type { DrillContext, DrillFilters } from "@/components/TxnDrawer";
 
 /* ---------------------------------------------------------------------------
@@ -129,6 +130,11 @@ type Ctx = {
    *  last landed in the warehouse. Null until that read arrives, and null
    *  when the warehouse is empty; the top bar renders no tag for null. */
   updatedAt: string | null;
+
+  /** Today in Pacific, "YYYY-MM-DD", REACTIVE across midnight. Pass it to
+   *  partialMonth()/avgPerFullMonth() rather than letting them read the clock
+   *  themselves — see the scheduler below for why. */
+  today: string;
 };
 
 const WarehouseCtx = createContext<Ctx | null>(null);
@@ -176,6 +182,31 @@ export default function WarehouseProvider({
   const [pins, setPins] = useState<Pin[]>([]);
   const [rampWithheld, setRampWithheld] = useState({ amount: 0, n: 0, people: 0 });
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+
+  /* Today in Pacific, kept live across midnight.
+     ---------------------------------------------------------------------------
+     partialMonth() consults the calendar: the newest month stops being partial
+     on its last day. Left to a per-call clock, nothing would tell React the
+     answer had changed — a session open across the 30th→31st would keep the
+     month marked partial and keep it OUT of the full-month average, printing a
+     stale dollar figure until someone refreshed. So the date is state, one
+     value for the whole app, and every consumer takes it as an argument.
+
+     Rescheduled from the real date each time rather than on a fixed 24h
+     interval, so a DST day (23 or 25 hours) self-corrects on the next tick
+     instead of drifting an hour further every spring. */
+  const [today, setToday] = useState(() => todayPacific());
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      timer = setTimeout(() => {
+        setToday(todayPacific());
+        schedule();
+      }, msUntilPacificMidnight());
+    };
+    schedule();
+    return () => clearTimeout(timer);
+  }, []);
 
   /* Requested-set in a ref, tick in state. The ref is the source of truth (so a
      second request for the same dataset is a no-op with no render), and the tick
@@ -505,10 +536,10 @@ export default function WarehouseProvider({
       facilities, months,
       rosterCount: inScope.length || facilities.length,
       read, pins, setRead, setPinned,
-      openDrill, focusPerson, setFocusPerson, scope, aggFor, rampWithheld, updatedAt,
+      openDrill, focusPerson, setFocusPerson, scope, aggFor, rampWithheld, updatedAt, today,
     }),
     [data, got, loadError, request, reload, facility, month, facilities, months, inScope.length,
-     read, pins, setRead, setPinned, openDrill, focusPerson, scope, aggFor, rampWithheld, updatedAt],
+     read, pins, setRead, setPinned, openDrill, focusPerson, scope, aggFor, rampWithheld, updatedAt, today],
   );
 
   return (

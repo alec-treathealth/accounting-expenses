@@ -13,6 +13,7 @@ import {
 } from "@/lib/pivot";
 import { MONTH_LABEL, monthName, usd, usdShort } from "@/lib/format";
 import { type DrillFilters } from "@/components/TxnDrawer";
+import { useWarehouse } from "@/components/WarehouseProvider";
 import Select from "@/components/Select";
 
 export type CompareGridProps = {
@@ -54,6 +55,10 @@ function filtersFor(
 }
 
 export default function CompareGrid({ rows, onCell }: CompareGridProps) {
+  /* The one value this otherwise-presentational grid takes from context: the
+     live Pacific date, so "(partial)" and the delta columns follow midnight
+     rather than freezing at first render. */
+  const { today } = useWarehouse();
   const [rowDim, setRowDim] = useState<Dim>("facility");
   const [colDim, setColDim] = useState<Dim>("month");
   const [thirdVal, setThirdVal] = useState<string>("");
@@ -82,7 +87,7 @@ export default function CompareGrid({ rows, onCell }: CompareGridProps) {
   /* Derived from EVERY month in the source rows, not from the visible columns:
      under a filter the newest visible column may be a complete month, and
      calling that one partial would drop a real month out of the delta. */
-  const partial = useMemo(() => partialMonth(rows.map((r) => r.posted_period)), [rows]);
+  const partial = useMemo(() => partialMonth(rows.map((r) => r.posted_period), today), [rows, today]);
   const deltaCols = useMemo(() => {
     if (colDim !== "month") return null;
     const full = p.colKeys.filter((k) => k !== partial);

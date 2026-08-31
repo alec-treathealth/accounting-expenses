@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NAV } from "@/lib/nav";
-import { monthName } from "@/lib/format";
+import { monthName, monthRangeLabel } from "@/lib/format";
 import { partialMonth } from "@/lib/pivot";
 import { useWarehouse } from "@/components/WarehouseProvider";
 import Icon from "@/components/Icon";
@@ -43,12 +43,11 @@ export default function SideNav({
 
   /* The foot describes the data's range, so it comes from the data. Hardcoded,
      it read "Apr 1 – Aug 18 2026 / August is partial" long after an upload had
-     completed the month. Empty until the warehouse read lands. */
-  const { months } = useWarehouse();
-  const partial = partialMonth(months);
-  const span = months.length
-    ? `${monthName(months[0]).slice(0, 3)} – ${monthName(months[months.length - 1]).slice(0, 3)} ${months[months.length - 1].slice(0, 4)}`
-    : null;
+     completed the month. Empty until the warehouse read lands; the shared
+     formatter prints both years when the range crosses one. */
+  const { months, today } = useWarehouse();
+  const partial = partialMonth(months, today);
+  const span = monthRangeLabel(months);
 
   return (
     <nav className="rail" aria-label="Sections">

@@ -7,7 +7,8 @@
 import { existsSync, readFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
-import { avgPerFullMonth, cellKey, delta, dimValue, partialMonth, pivot, type AggRow, type Dim } from "../lib/pivot.ts";
+import { avgPerFullMonth, cellKey, delta, dimValue, msUntilPacificMidnight, partialMonth, pivot, type AggRow, type Dim } from "../lib/pivot.ts";
+import { monthRangeLabel } from "../lib/format.ts";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let failures = 0;
@@ -202,6 +203,26 @@ ok(delta({ amount: 50, n: 1 }, undefined) === null, "delta is null on a missing 
 ok(delta(undefined, { amount: 50, n: 1 }) === null, "delta is null on a missing current value");
 // A negative baseline (a credit) would make percent change read backwards.
 ok(delta({ amount: -50, n: 1 }, { amount: -100, n: 1 }) === null, "delta is null when the baseline is negative");
+
+// monthRangeLabel() — the year must not be dropped from the START of a range
+// that crosses one. "Nov–Feb 2027" backdates November by twelve months.
+ok(monthRangeLabel(["2026-04", "2026-08"]) === "Apr–Aug 2026", "a same-year range prints the year once",
+   monthRangeLabel(["2026-04", "2026-08"]) ?? "null");
+ok(monthRangeLabel(["2026-11", "2027-02"]) === "Nov 2026–Feb 2027", "a year-crossing range prints both years",
+   monthRangeLabel(["2026-11", "2027-02"]) ?? "null");
+ok(monthRangeLabel(["2026-07"]) === "Jul 2026", "a single month prints as itself");
+ok(monthRangeLabel([]) === null, "an empty range is null, not a bare year");
+
+// msUntilPacificMidnight() — the scheduler must always advance, and never
+// overshoot a day.
+{
+  const ms = msUntilPacificMidnight(new Date());
+  ok(ms >= 1000 && ms <= 86_401_000, "the midnight delay is a sane positive span", `${Math.round(ms / 1000)}s`);
+  // 08:00Z is midnight Pacific only at UTC-8; assert the general bound instead
+  // of a fixed offset, which DST would break twice a year.
+  const noonUtc = msUntilPacificMidnight(new Date("2026-08-31T19:00:00Z")); // 12:00 PDT
+  ok(Math.abs(noonUtc - 12 * 3600 * 1000) < 2000, "noon Pacific is ~12h from midnight", `${Math.round(noonUtc / 1000)}s`);
+}
 
 console.log(`\n${failures === 0 ? "ALL CHECKS PASSED" : failures + " CHECK(S) FAILED"}`);
 process.exit(failures === 0 ? 0 : 1);

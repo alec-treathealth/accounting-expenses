@@ -82,6 +82,31 @@ const MONTH_NAMES = [
 export const monthName = (period: string): string =>
   MONTH_NAMES[Number(period.slice(5, 7)) - 1] ?? period;
 
+/** "2026-07" -> "Jul". Same pure string math as monthName, never a Date. */
+export const monthShort = (period: string): string => monthName(period).slice(0, 3);
+
+/**
+ * The span a sorted month list covers: "Apr–Aug 2026", or "Nov 2026–Feb 2027"
+ * when it crosses a calendar year. Null for an empty list — callers render
+ * nothing rather than a bare year.
+ *
+ * The year is printed ONCE only when both ends share it. Printing just the end
+ * year on a crossing range ("Nov–Feb 2027") silently backdates the start month
+ * by twelve months, which is the kind of caption a reader trusts without
+ * checking.
+ */
+export const monthRangeLabel = (months: readonly string[]): string | null => {
+  if (!months.length) return null;
+  const first = months[0];
+  const last = months[months.length - 1];
+  const y1 = first.slice(0, 4);
+  const y2 = last.slice(0, 4);
+  if (first === last) return `${monthShort(first)} ${y1}`;
+  return y1 === y2
+    ? `${monthShort(first)}–${monthShort(last)} ${y1}`
+    : `${monthShort(first)} ${y1}–${monthShort(last)} ${y2}`;
+};
+
 /** A warehouse timestamp as "Aug 31, 2026, 12:34 AM PDT" — always Pacific,
  *  the business's zone, never the viewer's, so two people reading the tag see
  *  the same freshness. A full timestamp (unlike a date-only string) parses as

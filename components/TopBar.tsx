@@ -32,7 +32,7 @@ export default function TopBar({
   /** The shell needs this to hand focus back when the drawer closes. */
   menuRef?: React.Ref<HTMLButtonElement>;
 }) {
-  const { facility, setFacility, month, setMonth, facilities, months, got, updatedAt } = useWarehouse();
+  const { facility, setFacility, month, setMonth, facilities, months, got, updatedAt, today } = useWarehouse();
   const { ground, toggleGround } = usePrefs();
   const [updating, setUpdating] = useState(false);
   const router = useRouter();
@@ -88,7 +88,7 @@ export default function TopBar({
             { value: "All", label: "All months" },
             ...months.map((m) => ({
               value: m,
-              label: `${monthName(m)} ${m.slice(0, 4)}${m === partialMonth(months) ? " (partial)" : ""}`,
+              label: `${monthName(m)} ${m.slice(0, 4)}${m === partialMonth(months, today) ? " (partial)" : ""}`,
             })),
           ]}
         />

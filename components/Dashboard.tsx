@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { usd, usdShort, pct, GROUP_COLOR, GROUP_ORDER, MONTH_LABEL, monthName } from "@/lib/format";
+import { usd, usdShort, pct, GROUP_COLOR, GROUP_ORDER, MONTH_LABEL, monthName, monthRangeLabel } from "@/lib/format";
 import { avgPerFullMonth, partialMonth } from "@/lib/pivot";
 import { costPerBed, splitSpend } from "@/lib/spend";
 import { useDatasets, useWarehouse } from "@/components/WarehouseProvider";
@@ -22,7 +22,7 @@ const gcolor = (g: string) => `var(${GROUP_COLOR[g] ?? "--chart-8"})`;
 
 export default function Dashboard() {
   useDatasets(["aa", "av"]);
-  const { data, got, facility, month, months, rosterCount, openDrill, scope, aggFor } = useWarehouse();
+  const { data, got, facility, month, months, rosterCount, openDrill, scope, aggFor, today } = useWarehouse();
   const { gm, aa, av } = data;
 
   const fac = facility;
@@ -76,19 +76,20 @@ export default function Dashboard() {
   /* Average over FULL months only — August covers 11 days. The numerator and
      denominator have to be scoped identically, which is fiddly enough that it
      lives in lib/pivot.ts where verify/pivot.mts can assert it. */
-  const avgFull = useMemo(() => avgPerFullMonth(rows, months, mon), [rows, months, mon]);
+  const avgFull = useMemo(() => avgPerFullMonth(rows, months, mon, today), [rows, months, mon, today]);
 
   /* Range captions, derived. Hardcoded, these read "(Aug partial)" long after
      August had closed — partialMonth() is null once the newest month's calendar
      is over, and every caption below must follow it the same way the averages
-     already do. */
-  const partial = partialMonth(months);
+     already do. `today` comes from the provider so midnight moves them all. */
+  const partial = partialMonth(months, today);
   const short = (m: string) => MONTH_LABEL[m] ?? monthName(m);
-  const rangeLabel = months.length
-    ? `${short(months[0])}–${short(months[months.length - 1])} ${months[months.length - 1].slice(0, 4)}${
-        partial ? ` (${short(partial)} partial)` : ""
-      }`
+  const rangeLabel = monthRangeLabel(months)
+    ? `${monthRangeLabel(months)}${partial ? ` (${short(partial)} partial)` : ""}`
     : " ";
+  /* The average covers the FULL months only, so its caption names those and
+     not `rangeLabel` — which spans the partial month this figure excludes. */
+  const fullRangeLabel = monthRangeLabel(months.filter((m) => m !== partial));
 
   const vendors = useMemo(() => {
     const rs = av.filter((v) => fac === "All" || v.facility === fac);
@@ -225,7 +226,9 @@ export default function Dashboard() {
           <div className="foot">
             {mon === "All"
               ? partial
-                ? `Excludes partial ${short(partial)}`
+                ? fullRangeLabel
+                  ? `${fullRangeLabel}, excludes partial ${short(partial)}`
+                  : `${monthName(partial)} is partial — no full month in view`
                 : rangeLabel
               : mon === partial
                 ? `${monthName(mon)} is partial — no full month in view`
