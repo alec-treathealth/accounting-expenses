@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NAV } from "@/lib/nav";
+import { monthName } from "@/lib/format";
+import { partialMonth } from "@/lib/pivot";
+import { useWarehouse } from "@/components/WarehouseProvider";
 import Icon from "@/components/Icon";
 import Logo, { LogoMark } from "@/components/Logo";
 
@@ -37,6 +40,15 @@ export default function SideNav({
   onClose: () => void;
 }) {
   const pathname = usePathname();
+
+  /* The foot describes the data's range, so it comes from the data. Hardcoded,
+     it read "Apr 1 – Aug 18 2026 / August is partial" long after an upload had
+     completed the month. Empty until the warehouse read lands. */
+  const { months } = useWarehouse();
+  const partial = partialMonth(months);
+  const span = months.length
+    ? `${monthName(months[0]).slice(0, 3)} – ${monthName(months[months.length - 1]).slice(0, 3)} ${months[months.length - 1].slice(0, 4)}`
+    : null;
 
   return (
     <nav className="rail" aria-label="Sections">
@@ -107,10 +119,17 @@ export default function SideNav({
         })}
       </ul>
 
-      <p className="rail-foot">
-        Apr 1 – Aug 18 2026<br />
-        August is partial.
-      </p>
+      {span && (
+        <p className="rail-foot">
+          {span}
+          {partial && (
+            <>
+              <br />
+              {monthName(partial)} is partial.
+            </>
+          )}
+        </p>
+      )}
     </nav>
   );
 }

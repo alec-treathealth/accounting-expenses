@@ -124,6 +124,10 @@ type Ctx = {
      against agg_ramp_person. Unscoped by facility/month on purpose: it is a
      property of the filter, not of the current view. */
   rampWithheld: { amount: number; n: number; people: number };
+
+  /** ISO timestamp of the newest ingest_log row — when the warehouse last
+   *  changed. Null until the read lands (or if no ingest was ever logged). */
+  updatedAt: string | null;
 };
 
 const WarehouseCtx = createContext<Ctx | null>(null);
@@ -170,6 +174,7 @@ export default function WarehouseProvider({
   const [read, setReadState] = useState<Set<string>>(() => new Set());
   const [pins, setPins] = useState<Pin[]>([]);
   const [rampWithheld, setRampWithheld] = useState({ amount: 0, n: 0, people: 0 });
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
 
   /* Requested-set in a ref, tick in state. The ref is the source of truth (so a
      second request for the same dataset is a no-op with no render), and the tick
@@ -366,6 +371,33 @@ export default function WarehouseProvider({
     }
   }, [tick, reloadKey]);
 
+  /* The freshness tag's source of truth: the newest ingest_log row, stamped by
+     the ingest route after every successful rebuild. Its own effect, keyed on
+     reloadKey alone — the loaders' effect refires on every dataset request
+     (tick), which would re-read a value that only changes when data lands. Not
+     a DatasetKey either: nothing renders rows from it, and a failure must not
+     raise the load-error banner over figures that loaded fine — the top bar
+     simply shows no tag. reload() after an upload refetches it with the rest. */
+  useEffect(() => {
+    let cancelled = false;
+    getSupabaseBrowser()
+      .from("ingest_log")
+      .select("uploaded_at")
+      .order("uploaded_at", { ascending: false })
+      .limit(1)
+      .then(({ data: rows, error }) => {
+        if (cancelled) return;
+        if (error) {
+          console.error("[warehouse] ingest_log read failed", error);
+          return;
+        }
+        setUpdatedAt(rows?.[0]?.uploaded_at ?? null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey]);
+
   // --- derived filter lists -------------------------------------------------
 
   // dim_facility is the roster; agg_group_month only holds facilities that spent
@@ -497,10 +529,10 @@ export default function WarehouseProvider({
       facilities, months,
       rosterCount: inScope.length || facilities.length,
       read, pins, setRead, setPinned,
-      openDrill, focusPerson, setFocusPerson, scope, aggFor, rampWithheld,
+      openDrill, focusPerson, setFocusPerson, scope, aggFor, rampWithheld, updatedAt,
     }),
     [data, got, loadError, request, reload, facility, month, facilities, months, inScope.length,
-     read, pins, setRead, setPinned, openDrill, focusPerson, scope, aggFor, rampWithheld],
+     read, pins, setRead, setPinned, openDrill, focusPerson, scope, aggFor, rampWithheld, updatedAt],
   );
 
   return (

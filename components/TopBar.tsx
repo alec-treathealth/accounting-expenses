@@ -3,8 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSupabaseBrowser } from "@/lib/supabaseBrowser";
-import { monthName } from "@/lib/format";
-import { DATA_UPDATED_AT } from "@/lib/dataMeta";
+import { monthName, updatedStamp } from "@/lib/format";
 import { partialMonth } from "@/lib/pivot";
 import { useWarehouse } from "@/components/WarehouseProvider";
 import Icon from "@/components/Icon";
@@ -33,7 +32,7 @@ export default function TopBar({
   /** The shell needs this to hand focus back when the drawer closes. */
   menuRef?: React.Ref<HTMLButtonElement>;
 }) {
-  const { facility, setFacility, month, setMonth, facilities, months, got } = useWarehouse();
+  const { facility, setFacility, month, setMonth, facilities, months, got, updatedAt } = useWarehouse();
   const { ground, toggleGround } = usePrefs();
   const [updating, setUpdating] = useState(false);
   const router = useRouter();
@@ -60,7 +59,10 @@ export default function TopBar({
       <div className="topbar-title">
         <h1>{title}</h1>
         <p className="topbar-blurb">{blurb}</p>
-        <p className="topbar-updated">Data last updated at {DATA_UPDATED_AT}</p>
+        {/* Lands with the warehouse read; rendered only once it has, so the
+            server and the first client paint agree (no hydration mismatch) and
+            the tag never shows a placeholder it would have to walk back. */}
+        {updatedAt && <p className="topbar-updated">Data last updated at {updatedStamp(updatedAt)}</p>}
       </div>
 
       <div className="topbar-controls">

@@ -142,7 +142,12 @@ export default function PersonDetail({
               </div>
             ))}
           </div>
-          <p className="fine">* August is partial (through Aug 18), so it is not comparable with a full month.</p>
+          {partialMonth(months) && (
+            <p className="fine">
+              * {monthName(partialMonth(months) as string)} is partial, so it is not comparable with a full
+              month.
+            </p>
+          )}
         </section>
       )}
 

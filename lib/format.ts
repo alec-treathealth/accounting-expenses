@@ -51,12 +51,17 @@ export const GROUP_ORDER = [
   "Unclassified expense",
 ];
 
+/* Plain names only. August used to be "Aug*", with the asterisk meaning
+   "partial" — but whether a month is partial is a fact about the calendar
+   (lib/pivot.ts partialMonth), not about the label, and baking it in here left
+   a complete August wearing a stale star. Callers that mark the partial month
+   derive the marker next to partialMonth(). */
 export const MONTH_LABEL: Record<string, string> = {
   "2026-04": "Apr",
   "2026-05": "May",
   "2026-06": "Jun",
   "2026-07": "Jul",
-  "2026-08": "Aug*",
+  "2026-08": "Aug",
 };
 
 const MONTH_NAMES = [
@@ -76,3 +81,14 @@ const MONTH_NAMES = [
  *  mismatch, since the server renders in UTC and the browser does not. */
 export const monthName = (period: string): string =>
   MONTH_NAMES[Number(period.slice(5, 7)) - 1] ?? period;
+
+/** An ingest_log timestamp as "Aug 31, 2026, 11:25 AM PDT" — always Pacific,
+ *  the business's zone, never the viewer's, so two people reading the tag see
+ *  the same freshness. A full timestamp (unlike a date-only string) parses as
+ *  an absolute instant, so `new Date(iso)` is safe here. */
+export const updatedStamp = (iso: string): string =>
+  new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    month: "short", day: "numeric", year: "numeric",
+    hour: "numeric", minute: "2-digit", timeZoneName: "short",
+  }).format(new Date(iso));

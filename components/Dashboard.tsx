@@ -78,6 +78,18 @@ export default function Dashboard() {
      lives in lib/pivot.ts where verify/pivot.mts can assert it. */
   const avgFull = useMemo(() => avgPerFullMonth(rows, months, mon), [rows, months, mon]);
 
+  /* Range captions, derived. Hardcoded, these read "(Aug partial)" long after
+     August had closed — partialMonth() is null once the newest month's calendar
+     is over, and every caption below must follow it the same way the averages
+     already do. */
+  const partial = partialMonth(months);
+  const short = (m: string) => MONTH_LABEL[m] ?? monthName(m);
+  const rangeLabel = months.length
+    ? `${short(months[0])}–${short(months[months.length - 1])} ${months[months.length - 1].slice(0, 4)}${
+        partial ? ` (${short(partial)} partial)` : ""
+      }`
+    : " ";
+
   const vendors = useMemo(() => {
     const rs = av.filter((v) => fac === "All" || v.facility === fac);
     const agg: Record<string, { vendor: string; group: string; amount: number; n: number }> = {};
@@ -134,7 +146,7 @@ export default function Dashboard() {
           <div className="lab">COGS + Expenses</div>
           <div className="val">{got.gm ? usd(split.all) : <Sk className="sk-kpi" />}</div>
           <div className="foot">
-            {mon === "All" ? "Apr–Aug 2026 (Aug partial)" : `${MONTH_LABEL[mon] ?? monthName(mon)} 2026`}
+            {mon === "All" ? rangeLabel : `${short(mon)} 2026`}
           </div>
           <div className="dd-hint">
             {fac === "All" && mon === "All" ? (
@@ -177,7 +189,7 @@ export default function Dashboard() {
               : perBed.perBed === null
                 ? "No facility in this view has a licensed capacity recorded"
                 : `Cumulative over ${
-                    mon === "All" ? "Apr–Aug 2026 (Aug partial)" : `${MONTH_LABEL[mon] ?? monthName(mon)} 2026`
+                    mon === "All" ? rangeLabel : `${short(mon)} 2026`
                   } · ${perBed.beds} beds, ${perBed.counted.length} ${
                     perBed.counted.length === 1 ? "facility" : "facilities"
                   }`}
@@ -212,10 +224,12 @@ export default function Dashboard() {
           </div>
           <div className="foot">
             {mon === "All"
-              ? "Apr–Jul, excludes partial Aug"
-              : mon === partialMonth(months)
-                ? "August is partial — no full month in view"
-                : `${MONTH_LABEL[mon] ?? monthName(mon)} only`}
+              ? partial
+                ? `Excludes partial ${short(partial)}`
+                : rangeLabel
+              : mon === partial
+                ? `${monthName(mon)} is partial — no full month in view`
+                : `${short(mon)} only`}
           </div>
         </div>
       </div>
@@ -348,7 +362,7 @@ export default function Dashboard() {
                 <g key={mo}>
                   {rects}
                   <text x={x + bw / 2} y={H - 9} textAnchor="middle" fontSize={11} fill="var(--text-meta)">
-                    {MONTH_LABEL[mo] ?? monthName(mo)}
+                    {short(mo)}{mo === partial ? "*" : ""}
                   </text>
                   <text x={x + bw / 2} y={tTop} textAnchor="middle" fontSize={10.5} fill="var(--text-secondary)" className="mono">
                     {usdShort(stack.totals[i])}
@@ -362,7 +376,7 @@ export default function Dashboard() {
           {GROUP_ORDER.map((g) => (
             <span key={g}><span className="sw" style={{ background: gcolor(g) }} />{g}</span>
           ))}
-          <span style={{ color: "var(--muted)" }}>* August partial (through Aug 18)</span>
+          {partial && <span style={{ color: "var(--muted)" }}>* {monthName(partial)} is partial</span>}
         </div>
       </section>
 
