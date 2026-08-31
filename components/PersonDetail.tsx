@@ -34,12 +34,15 @@ export default function PersonDetail({
   /** Ramp spend for everyone in this scope, for the share figure. */
   rampTotal: number;
 }) {
-  const { data, facility, month, months, openDrill } = useWarehouse();
+  const { data, facility, month, months, openDrill, today } = useWarehouse();
 
   const mine = useMemo(() => filterRamp(rows, { person }), [rows, person]);
   const t = useMemo(() => total(mine), [mine]);
   const groups = useMemo(() => byGroup(mine), [mine]);
   const trend = useMemo(() => byMonth(mine, months), [mine, months]);
+  /* One binding for the sparkline's asterisk and its footnote, so the two can
+     never disagree — and `today` keeps it live across midnight. */
+  const partial = partialMonth(months, today);
 
   /* data.ramp, NOT the month-scoped `rows`. agg_ramp_vendor has no month
      dimension, so the merchant figures always span every month; dividing them
@@ -137,12 +140,16 @@ export default function PersonDetail({
                 </div>
                 <div className="spark-lab">
                   {MONTH_LABEL[m.month] ?? monthName(m.month)}
-                  {m.month === partialMonth(months) ? "*" : ""}
+                  {m.month === partial ? "*" : ""}
                 </div>
               </div>
             ))}
           </div>
-          <p className="fine">* August is partial (through Aug 18), so it is not comparable with a full month.</p>
+          {partial && (
+            <p className="fine">
+              * {monthName(partial)} is partial, so it is not comparable with a full month.
+            </p>
+          )}
         </section>
       )}
 
