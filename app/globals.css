@@ -541,6 +541,14 @@ mark.dd-hit {
 .topbar-title { flex: 1 1 220px; min-width: 0; }
 .topbar-title h1 { font-size: var(--size-h4); margin: 0; }
 .topbar-blurb { margin: 2px 0 0; font-size: var(--size-ui-sm); color: var(--text-meta); }
+/* The data-freshness tag. A pill like .badge so it reads as metadata, not a
+   second blurb; it sits under the title on every route in the workspace. */
+.topbar-updated {
+  display: inline-flex; align-items: center; margin: 5px 0 0; padding: 1px 8px;
+  border-radius: 99px; font-size: var(--size-tag); color: var(--text-secondary);
+  box-shadow: inset 0 0 0 1px var(--color-divider);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
 .topbar-controls { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 
 /* ---- Collapsed presentation ----------------------------------------------
